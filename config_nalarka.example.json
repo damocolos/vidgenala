@@ -1,0 +1,15 @@
+{
+  "base_url": "https://oao.ai.id/v1",
+  "api_key": "YOUR_API_KEY_HERE",
+  "coder_model": "deepseek-v4-pro",
+  "script_model": "claude-fable-5",
+  "tts_provider": "ElevenLabs API v1",
+  "elevenlabs_api_key": "",
+  "elevenlabs_voice_id": "pNInz6obpgDQGcFmaJgB",
+  "elevenlabs_model_id": "eleven_multilingual_v2",
+  "elevenlabs_stability": 0.5,
+  "elevenlabs_similarity": 0.75,
+  "elevenlabs_style": 0.15,
+  "ref_library_dir": "references_library",
+  "selected_reference": ""
+}

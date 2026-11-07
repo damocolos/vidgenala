@@ -1,0 +1,84 @@
+# ==========================================
+# Nalarka Video Generation .gitignore
+# ==========================================
+
+# Sensitive files & configuration
+config*.json
+!config*.example.json
+!config.example.json
+*.env
+.env*
+*.key
+*.pem
+*credentials*
+*secret*
+
+# Media and asset files (videos, audio, images)
+*.mp4
+*.mkv
+*.mov
+*.avi
+*.webm
+*.flv
+*.mp3
+*.wav
+*.aac
+*.flac
+*.m4a
+*.ogg
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.webp
+
+# Generated output directories & frame caches
+check/
+ref_frames/
+
+# Asset directories (preserve directory structure only)
+references_library/*
+!references_library/.gitkeep
+
+# Logs and runtime debug outputs
+*.log
+nalarka_debug.log
+ffmpeg_render.log
+
+# Python cache & virtual environments
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+.pytest_cache/
+.coverage
+htmlcov/
+venv/
+.venv/
+env/
+ENV/
+
+# OS and Editor files
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
+*.swp
+*.swo
