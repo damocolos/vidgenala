@@ -1,7 +1,7 @@
 {
   "base_url": "https://oao.ai.id/v1",
   "api_key": "YOUR_API_KEY_HERE",
-  "coder_model": "deepseek-v4-pro",
+  "coder_model": "claude-opus-5.5",
   "script_model": "claude-fable-5",
   "tts_provider": "ElevenLabs API v1",
   "elevenlabs_api_key": "",
