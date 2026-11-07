@@ -267,27 +267,44 @@ def call_ai_json(
     client = OpenAI(base_url=base_url.strip(), api_key=api_key.strip(), timeout=300.0, max_retries=1)
     t0 = time.time()
 
-    stream = client.chat.completions.create(
-        model=model.strip(),
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt},
-        ],
-        temperature=temperature,
-        stream=True,
-    )
-
     chunks = []
-    for chunk in stream:
-        if getattr(chunk, "choices", None):
-            delta = chunk.choices[0].delta
-            content = getattr(delta, "content", None)
-            if content:
-                chunks.append(content)
+    try:
+        stream = client.chat.completions.create(
+            model=model.strip(),
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            temperature=temperature,
+            stream=True,
+        )
+        for chunk in stream:
+            if getattr(chunk, "choices", None):
+                delta = chunk.choices[0].delta
+                content = getattr(delta, "content", None)
+                if content:
+                    chunks.append(content)
+    except Exception as stream_err:
+        log_fn(f"[AI JSON WARN] Streaming interrupted from '{model}' ({stream_err}). Attempting non-streaming fallback...")
 
-    raw_content = "".join(chunks)
+    raw_content = "".join(chunks).strip()
+
+    # Fallback to non-streaming if stream failed or returned empty/insufficient content
+    if not raw_content or len(raw_content) < 30:
+        log_fn(f"[AI JSON WARN] Response empty/truncated. Retrying '{model}' with stream=False...")
+        resp_retry = client.chat.completions.create(
+            model=model.strip(),
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            temperature=0.2,
+            stream=False,
+        )
+        raw_content = getattr(resp_retry.choices[0].message, "content", "") or ""
+
     elapsed = round(time.time() - t0, 2)
-    log_fn(f"[AI JSON] Stream completed from '{model}' in {elapsed}s ({len(raw_content)} chars).")
+    log_fn(f"[AI JSON] Content received from '{model}' in {elapsed}s ({len(raw_content)} chars).")
     logging.debug(f"RAW AI JSON ({model}):\n{raw_content}")
     return extract_json_safely(raw_content, log_fn)
 
@@ -305,31 +322,31 @@ def call_ai_python_code(
     client = OpenAI(base_url=base_url.strip(), api_key=api_key.strip(), timeout=360.0, max_retries=1)
     t0 = time.time()
 
-    stream = client.chat.completions.create(
-        model=model.strip(),
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt},
-        ],
-        temperature=temperature,
-        stream=True,
-    )
-
     chunks = []
-    char_count = 0
-    for chunk in stream:
-        if getattr(chunk, "choices", None):
-            delta = chunk.choices[0].delta
-            content = getattr(delta, "content", None)
-            if content:
-                chunks.append(content)
-                char_count += len(content)
+    try:
+        stream = client.chat.completions.create(
+            model=model.strip(),
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            temperature=temperature,
+            stream=True,
+        )
+        for chunk in stream:
+            if getattr(chunk, "choices", None):
+                delta = chunk.choices[0].delta
+                content = getattr(delta, "content", None)
+                if content:
+                    chunks.append(content)
+    except Exception as stream_err:
+        log_fn(f"[AI CODE WARN] Streaming interrupted from '{model}' ({stream_err}). Attempting non-streaming fallback...")
 
     raw_content = "".join(chunks).strip()
     
     # Fallback jika model masih memulangkan respons kosong
     if not raw_content or len(raw_content) < 50:
-        log_fn(f"[AI CODE WARN] Model '{model}' returned empty/too short response. Retrying with temperature 0.2...")
+        log_fn(f"[AI CODE WARN] Model '{model}' returned empty/too short response. Retrying with stream=False...")
         resp_retry = client.chat.completions.create(
             model=model.strip(),
             messages=[
