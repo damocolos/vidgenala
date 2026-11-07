@@ -40,3 +40,4 @@ Launch the desktop UI:
 ```bash
 python nalarka_local.py
 ```
+
