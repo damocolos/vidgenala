@@ -247,7 +247,7 @@ def execute_full_render(
     if total_dur > max_duration:
         raise ValueError(f"Total duration ({total_dur}s) exceeds max allowed duration cap ({max_duration}s)!")
 
-    parsed_sections = parse_tagged_script(script_raw_text)
+    _, parsed_sections = parse_tagged_script(script_raw_text)
     if not parsed_sections:
         parsed_sections = [{"tag": "Body", "text": script_raw_text}]
 
