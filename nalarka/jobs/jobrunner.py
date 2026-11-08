@@ -260,6 +260,60 @@ def run_job(job_id: str, db_path: Optional[str] = None) -> int:
             )
             update_render_status(conn, rid, status="running", started_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
 
+            # Check if an existing storyboard can be reused
+            reuse_sb = params.get("reuse_storyboard", True)
+            specified_sb_id = params.get("storyboard_id")
+            existing_sb = None
+            if specified_sb_id:
+                existing_sb = get_storyboard(conn, specified_sb_id)
+            elif reuse_sb:
+                existing_sb = get_current_storyboard(conn, topic_id)
+
+            existing_plan = None
+            existing_ns = None
+            sb_id = None
+            tr_id = None
+
+            if existing_sb:
+                try:
+                    existing_plan, existing_ns = load_plan(conn, existing_sb["id"], ctx.log)
+                    sb_id = existing_sb["id"]
+                    ctx.log(
+                        f"[STORYBOARD REUSE] Reusing storyboard #{existing_sb['id']} for Topic #{topic_id} "
+                        f"({len(existing_plan.get('scenes', []))} beats). Zero LLM tokens required!"
+                    )
+                except Exception as e:
+                    ctx.log(f"[STORYBOARD REUSE WARN] Could not load existing storyboard #{existing_sb['id']}: {e}. Will generate fresh.")
+                    existing_plan = None
+                    existing_ns = None
+                    sb_id = None
+
+            def _on_plan_ready(plan_dict: dict, ns_dict: dict, words_list: list):
+                nonlocal tr_id, sb_id
+                if vo_id and words_list and not tr_id:
+                    try:
+                        tr_id = create_transcript(
+                            conn,
+                            voiceover_id=vo_id,
+                            whisper_size=whisper_size,
+                            language=topic["language"],
+                            words=words_list,
+                        )
+                    except Exception as err:
+                        ctx.log(f"[WARN] Failed to create transcript: {err}")
+                if not sb_id:
+                    sb_id = save_plan(
+                        conn,
+                        topic_id=topic_id,
+                        plan=plan_dict,
+                        script_id=cur_sc["id"],
+                        voiceover_id=vo_id,
+                        transcript_id=tr_id,
+                        coder_model=prov["coder_model"],
+                        is_current=True,
+                    )
+                    ctx.log(f"[DB] Storyboard #{sb_id} saved to database immediately (safe from interruptions).")
+
             render_res = execute_full_render(
                 ctx=ctx,
                 base_url=prov["base_url"],
@@ -278,11 +332,13 @@ def run_job(job_id: str, db_path: Optional[str] = None) -> int:
                 workers=workers,
                 output_mp4_path=out_mp4,
                 check_script_fingerprint=bool(vo_data and vo_data.get("script_fingerprint")),
+                existing_plan=existing_plan,
+                existing_namespace=existing_ns,
+                on_plan_ready=_on_plan_ready,
             )
 
-            # Persist transcript & storyboard
-            tr_id = None
-            if vo_id and render_res.get("words"):
+            # Persist transcript & storyboard if not already saved
+            if vo_id and render_res.get("words") and not tr_id:
                 tr_id = create_transcript(
                     conn,
                     voiceover_id=vo_id,
@@ -291,16 +347,35 @@ def run_job(job_id: str, db_path: Optional[str] = None) -> int:
                     words=render_res["words"],
                 )
 
-            sb_id = save_plan(
-                conn,
-                topic_id=topic_id,
-                plan=render_res["plan"],
-                script_id=cur_sc["id"],
-                voiceover_id=vo_id,
-                transcript_id=tr_id,
-                coder_model=prov["coder_model"],
-                is_current=True,
-            )
+            if not sb_id:
+                sb_id = save_plan(
+                    conn,
+                    topic_id=topic_id,
+                    plan=render_res["plan"],
+                    script_id=cur_sc["id"],
+                    voiceover_id=vo_id,
+                    transcript_id=tr_id,
+                    coder_model=prov["coder_model"],
+                    is_current=True,
+                )
+            else:
+                # Update any beats that were modified during audit loop
+                save_plan(
+                    conn,
+                    topic_id=topic_id,
+                    plan=render_res["plan"],
+                    script_id=cur_sc["id"],
+                    voiceover_id=vo_id,
+                    transcript_id=tr_id,
+                    coder_model=prov["coder_model"],
+                    is_current=True,
+                )
+
+            # Link storyboard to render record
+            if sb_id:
+                cur = conn.cursor()
+                cur.execute("UPDATE renders SET storyboard_id = ? WHERE id = ?", (sb_id, rid))
+                conn.commit()
 
             # Persist verification
             ver_res = render_res["verification"]

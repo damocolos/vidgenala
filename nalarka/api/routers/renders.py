@@ -49,6 +49,8 @@ def trigger_full_render(
             "bgm_path": req.bgm_path,
             "workers": req.workers,
             "output_name": req.output_name,
+            "storyboard_id": req.storyboard_id,
+            "reuse_storyboard": req.reuse_storyboard,
         },
         topic_id=topic_id,
     )

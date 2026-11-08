@@ -190,7 +190,7 @@ class VectorKit:
     # ==========================================
     # 1. UNIVERSAL FLAT-VECTOR SHAPE PRIMITIVES
     # ==========================================
-    def backdrop_circle(self, r: float = 340, color: str = "yellow_stage", x: float = 0, y: float = 0, delay: float = 0.0):
+    def backdrop_circle(self, r: float = 340, color: str = "yellow_stage", x: float = 0, y: float = 0, delay: float = 0.0, **kwargs):
         """Draws a soft circular stage backdrop centered at `(x, y)` relative to stage center."""
         p = self.spring(delay, 0.48, overshoot=1.3)
         if p <= 0.02:
@@ -208,7 +208,8 @@ class VectorKit:
         alpha: int = 255,
         outline: Optional[str] = None,
         width: float = 0,
-        delay: float = 0.0
+        delay: float = 0.0,
+        **kwargs
     ):
         p = self.spring(delay, 0.45) if delay > 0 else 1.0
         if p <= 0.02:
@@ -228,7 +229,8 @@ class VectorKit:
         color: str = "pink_organ",
         angle: float = 0.0,
         alpha: int = 255,
-        delay: float = 0.0
+        delay: float = 0.0,
+        **kwargs
     ):
         p = self.spring(delay, 0.45) if delay > 0 else 1.0
         if p <= 0.02:
@@ -258,7 +260,10 @@ class VectorKit:
         angle: float = 0.0,
         alpha: int = 255,
         shadow: bool = False,
-        delay: float = 0.0
+        delay: float = 0.0,
+        outline: Optional[str] = None,
+        width: float = 0,
+        **kwargs
     ):
         """Draws a flat-vector rounded rectangle centered at `(x, y)` with optional rotation and soft shadow."""
         p = self.spring(delay, 0.45) if delay > 0 else 1.0
@@ -269,17 +274,20 @@ class VectorKit:
         pw, ph = max(2, int(self.ss(w) * p)), max(2, int(self.ss(h) * p))
         rad = min(pw // 2, ph // 2, self.ss(radius))
 
+        out_c = self.col(outline, alpha) if outline else None
+        w_out = self.ss(width) if width > 0 else (max(1, self.ss(2)) if outline else 0)
+
         if abs(angle) < 0.5:
             x1, y1, x2, y2 = cx - pw // 2, cy - ph // 2, cx + pw // 2, cy + ph // 2
             if shadow:
                 so = self.ss(10)
                 self.draw.rounded_rectangle([x1 + so, y1 + so, x2 + so, y2 + so], radius=rad, fill=(20, 20, 20, 45))
-            self.draw.rounded_rectangle([x1, y1, x2, y2], radius=rad, fill=self.col(color, alpha))
+            self.draw.rounded_rectangle([x1, y1, x2, y2], radius=rad, fill=self.col(color, alpha) if color else None, outline=out_c, width=w_out)
         else:
             pad = 24
             layer = Image.new("RGBA", (pw + pad * 2, ph + pad * 2), (0, 0, 0, 0))
             ldraw = ImageDraw.Draw(layer)
-            ldraw.rounded_rectangle([pad, pad, pad + pw, pad + ph], radius=rad, fill=self.col(color, alpha))
+            ldraw.rounded_rectangle([pad, pad, pad + pw, pad + ph], radius=rad, fill=self.col(color, alpha) if color else None, outline=out_c, width=w_out)
             rot = layer.rotate(-angle, resample=Image.Resampling.BICUBIC, expand=True)
             self.img.paste(rot, (cx - rot.width // 2, cy - rot.height // 2), rot)
             self.draw = ImageDraw.Draw(self.img, "RGBA")
@@ -293,7 +301,8 @@ class VectorKit:
         dy: float = 0.0,
         scale: float = 1.0,
         angle: float = 0.0,
-        delay: float = 0.0
+        delay: float = 0.0,
+        **kwargs
     ):
         """Draws a custom flat-vector polygon with local translation, scale, and rotation."""
         p = self.spring(delay, 0.45) if delay > 0 else 1.0
@@ -323,9 +332,14 @@ class VectorKit:
         alpha: int = 255,
         progress: float = 1.0,
         dashed: bool = False,
-        dash_speed: float = 140.0
+        dash_speed: float = 140.0,
+        delay: float = 0.0,
+        **kwargs
     ):
-        pr = clamp(progress, 0.0, 1.0)
+        p = self.spring(delay, 0.45) if delay > 0 else 1.0
+        if p <= 0.02:
+            return
+        pr = clamp(progress * p, 0.0, 1.0)
         if pr <= 0.01:
             return
         self.shape_count += 1
@@ -368,11 +382,16 @@ class VectorKit:
         end: float = 180,
         width: float = 14,
         color: str = "dark",
-        alpha: int = 255
+        alpha: int = 255,
+        delay: float = 0.0,
+        **kwargs
     ):
+        p = self.spring(delay, 0.45) if delay > 0 else 1.0
+        if p <= 0.02:
+            return
         self.shape_count += 1
         cx, cy = self.sx(x), self.sy(y)
-        pw, ph = self.ss(w), self.ss(h)
+        pw, ph = max(2, int(self.ss(w) * p)), max(2, int(self.ss(h) * p))
         self.draw.arc([cx - pw // 2, cy - ph // 2, cx + pw // 2, cy + ph // 2], start=start, end=end, fill=self.col(color, alpha), width=self.ss(width))
 
     def bezier(
@@ -382,13 +401,25 @@ class VectorKit:
         color: str = "red_hot",
         fill: Optional[str] = None,
         alpha: int = 255,
-        progress: float = 1.0
+        progress: float = 1.0,
+        angle: float = 0.0,
+        delay: float = 0.0,
+        **kwargs
     ):
         """Draws a smooth curved Bezier path or filled organic shape from control points."""
         if len(points) < 2:
             return
+        p = self.spring(delay, 0.45) if delay > 0 else 1.0
+        if p <= 0.02:
+            return
         self.shape_count += 1
-        screen_pts = [(self.sx(px), self.sy(py)) for px, py in points]
+        if abs(angle) > 0.1:
+            rad = math.radians(angle)
+            cos_a, sin_a = math.cos(rad), math.sin(rad)
+            pts = [(px * cos_a - py * sin_a, px * sin_a + py * cos_a) for px, py in points]
+        else:
+            pts = points
+        screen_pts = [(self.sx(px * p), self.sy(py * p)) for px, py in pts]
         curve = sample_bezier_curve(screen_pts, steps=32)
         n_keep = max(2, int(len(curve) * clamp(progress, 0.0, 1.0)))
         sliced = curve[:n_keep]
@@ -409,10 +440,15 @@ class VectorKit:
         width: float = 10.0,
         color: str = "blue_tear",
         alpha: int = 255,
-        progress: float = 1.0
+        progress: float = 1.0,
+        delay: float = 0.0,
+        **kwargs
     ):
         """Draws an animated sine wave traveling between `(x1, y1)` and `(x2, y2)` (ideal for soundwaves, bone vibration, heat, signals)."""
-        pr = clamp(progress, 0.0, 1.0)
+        p_spring = self.spring(delay, 0.45) if delay > 0 else 1.0
+        if p_spring <= 0.02:
+            return
+        pr = clamp(progress * p_spring, 0.0, 1.0)
         if pr <= 0.02:
             return
         self.shape_count += 1
@@ -447,12 +483,17 @@ class VectorKit:
         color: str = "red_hot",
         width: float = 10,
         start_angle: float = 0,
-        end_angle: float = 360
+        end_angle: float = 360,
+        delay: float = 0.0,
+        **kwargs
     ):
         """Draws expanding sonar / sound / acoustic / shockwave rings or directional arcs."""
+        p = self.spring(delay, 0.45) if delay > 0 else 1.0
+        if p <= 0.02:
+            return
         self.shape_count += 1
         cx, cy = self.sx(x), self.sy(y)
-        r0, r1 = self.ss(min_r), self.ss(max_r)
+        r0, r1 = self.ss(min_r) * p, self.ss(max_r) * p
         for i in range(max(1, int(count))):
             rp = (self.lt * 0.75 + i / float(max(1, count))) % 1.0
             rr = int(r0 + (r1 - r0) * rp)
@@ -471,14 +512,19 @@ class VectorKit:
         count: int = 13,
         color: str = "red_hot",
         bg_color: Optional[str] = None,
-        speed: float = 9.0
+        speed: float = 9.0,
+        delay: float = 0.0,
+        **kwargs
     ):
         """Draws animated audio / voice-note equalizer bars."""
+        p = self.spring(delay, 0.45) if delay > 0 else 1.0
+        if p <= 0.02:
+            return
         self.shape_count += 2
         if bg_color:
             self.rect(x, y, w + 60, h + 50, radius=28, color=bg_color, shadow=True)
         cx, cy = self.sx(x), self.sy(y)
-        pw, ph = self.ss(w), self.ss(h)
+        pw, ph = int(self.ss(w) * p), int(self.ss(h) * p)
         n = max(3, int(count))
         gap = self.ss(10)
         bw = max(6, (pw - gap * (n - 1)) // n)
@@ -497,7 +543,9 @@ class VectorKit:
         r: float = 135,
         lobes: int = 7,
         color: str = "pink_soft",
-        delay: float = 0.0
+        delay: float = 0.0,
+        alpha: int = 255,
+        **kwargs
     ):
         """Draws an organic multi-lobed cloud / brain / cell / organ silhouette."""
         p = self.spring(delay, 0.48)
@@ -506,7 +554,7 @@ class VectorKit:
         self.shape_count += 2
         cx, cy = self.sx(x), self.sy(y)
         base_r = int(self.ss(r) * p)
-        c = self.col(color)
+        c = self.col(color, alpha)
         self.draw.ellipse([cx - base_r, cy - int(base_r * 0.85), cx + base_r, cy + int(base_r * 0.85)], fill=c)
         for i in range(max(4, int(lobes))):
             ang = (2.0 * math.pi * i) / lobes + math.sin(self.lt * 2.0 + i) * 0.05
@@ -524,7 +572,9 @@ class VectorKit:
         width: float = 14,
         color: str = "red_hot",
         delay: float = 0.1,
-        dur: float = 0.45
+        dur: float = 0.45,
+        alpha: int = 255,
+        **kwargs
     ):
         p = self.ease(delay, dur)
         if p <= 0.04:
@@ -534,7 +584,7 @@ class VectorKit:
         sx2, sy2 = self.sx(x2), self.sy(y2)
         cx = int(sx1 + (sx2 - sx1) * p)
         cy = int(sy1 + (sy2 - sy1) * p)
-        c = self.col(color)
+        c = self.col(color, alpha)
         self.draw.line([(sx1, sy1), (cx, cy)], fill=c, width=self.ss(width))
         if p > 0.2:
             ang = math.atan2(sy2 - sy1, sx2 - sx1)
@@ -552,7 +602,9 @@ class VectorKit:
         points: int = 10,
         color: str = "yellow_stage",
         speed: float = 0.6,
-        delay: float = 0.0
+        delay: float = 0.0,
+        alpha: int = 255,
+        **kwargs
     ):
         p = self.elastic(delay, 0.5) if delay > 0 else 1.0
         if p <= 0.03:
@@ -566,17 +618,27 @@ class VectorKit:
             r = ro if i % 2 == 0 else ri
             ang = i * step + self.lt * speed
             pts.append((int(cx + math.cos(ang) * r), int(cy + math.sin(ang) * r)))
-        self.draw.polygon(pts, fill=self.col(color))
+        self.draw.polygon(pts, fill=self.col(color, alpha))
 
-    def droplet(self, x: float, y: float, r: float = 32, color: str = "blue_tear", angle: float = 0.0, delay: float = 0.0):
+    def droplet(
+        self,
+        x: float,
+        y: float,
+        r: float = 32,
+        color: str = "blue_tear",
+        angle: float = 0.0,
+        delay: float = 0.0,
+        alpha: int = 255,
+        **kwargs
+    ):
         """Draws a teardrop / sweat drop / flame petal centered at `(x, y)`."""
         p = self.spring(delay, 0.42) if delay > 0 else 1.0
         if p <= 0.03:
             return
         self.shape_count += 1
         pts = [(-r, 0), (0, -r * 2.1), (r, 0)]
-        self.circle(x, y, r * p, color=color)
-        self.poly(pts, color=color, dx=x, dy=y, scale=p, angle=angle)
+        self.circle(x, y, r * p, color=color, alpha=alpha)
+        self.poly(pts, color=color, alpha=alpha, dx=x, dy=y, scale=p, angle=angle)
 
     def ring_gauge(
         self,
@@ -587,7 +649,9 @@ class VectorKit:
         color: str = "red_hot",
         bg_color: str = "white",
         label: str = "78%",
-        delay: float = 0.05
+        delay: float = 0.05,
+        alpha: int = 255,
+        **kwargs
     ):
         p = self.spring(delay, 0.5)
         if p <= 0.04:
@@ -596,14 +660,14 @@ class VectorKit:
         cx, cy = self.sx(x), self.sy(y)
         pr = int(self.ss(r) * p)
         bbox = [cx - pr, cy - pr, cx + pr, cy + pr]
-        self.draw.ellipse(bbox, fill=self.col(bg_color))
+        self.draw.ellipse(bbox, fill=self.col(bg_color, alpha))
         sweep = int(360.0 * clamp(pct, 0.0, 1.0) * self.ease(delay + 0.05, 0.65))
-        self.draw.pieslice(bbox, start=-90, end=-90 + sweep, fill=self.col(color))
+        self.draw.pieslice(bbox, start=-90, end=-90 + sweep, fill=self.col(color, alpha))
         ir = int(pr * 0.62)
         self.draw.ellipse([cx - ir, cy - ir, cx + ir, cy + ir], fill=self.col(self.beat.get("bg_color", "cream")))
         if label and p > 0.45:
             f = self._fit_font(str(label), int(r * 0.45), max_w_ratio=0.35)
-            self.draw.text((cx, cy), str(label), font=f, fill=self.col("dark"), anchor="mm")
+            self.draw.text((cx, cy), str(label), font=f, fill=self.col("dark", alpha), anchor="mm")
 
     def label_pill(
         self,
@@ -614,7 +678,9 @@ class VectorKit:
         fg: str = "red_hot",
         size: int = 38,
         pointer: bool = False,
-        delay: float = 0.15
+        delay: float = 0.15,
+        alpha: int = 255,
+        **kwargs
     ):
         """Draws a floating callout pill or speech bubble (`pointer=True`) at `(x, y)` relative to stage center."""
         p = self.spring(delay, 0.42, overshoot=1.7)

@@ -36,7 +36,18 @@ An automated AI-driven motion graphics generator and vector animation studio pow
 
 ## Running the Application
 
-Launch the desktop UI:
+### Web UI & API Server
+Start the web server with auto-reload protected against render output interrupts:
+```bash
+python run_server.py
+```
+Or directly with Uvicorn (make sure to specify `--reload-dir nalarka`):
+```bash
+uvicorn nalarka.api.main:app --reload --reload-dir nalarka
+```
+Open your browser at `http://127.0.0.1:8000`.
+
+### Desktop UI (Legacy)
 ```bash
 python nalarka_local.py
 ```

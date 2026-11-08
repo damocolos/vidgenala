@@ -128,6 +128,8 @@ class CreateRenderRequest(BaseModel):
     bgm_path: Optional[str] = None
     workers: Optional[int] = None
     output_name: Optional[str] = "output_motion_graphic.mp4"
+    storyboard_id: Optional[int] = None
+    reuse_storyboard: Optional[bool] = True
 
 
 class RerollBeatRequest(BaseModel):

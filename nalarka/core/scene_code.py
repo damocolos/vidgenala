@@ -2,6 +2,7 @@
 import re
 import ast
 import math
+import textwrap
 from typing import Dict, Any, Optional, Tuple, List
 
 from .mathutil import clamp
@@ -76,10 +77,10 @@ def _salvage_functions(py_code: str, log_fn) -> Tuple[Dict[str, str], Dict[str, 
     """If the whole module fails to parse, keep every top-level function that parses on its own."""
     helpers: Dict[str, str] = {}
     beats: Dict[str, str] = {}
-    matches = list(re.finditer(r"^def\s+(\w+)\s*\(", py_code, flags=re.MULTILINE))
+    matches = list(re.finditer(r"^[ \t]*def\s+(\w+)\s*\(", py_code, flags=re.MULTILINE))
     for i, m in enumerate(matches):
         end = matches[i + 1].start() if i + 1 < len(matches) else len(py_code)
-        chunk = _trim_to_function_body(py_code[m.start():end])
+        chunk = textwrap.dedent(_trim_to_function_body(py_code[m.start():end]))
         try:
             ast.parse(chunk)
         except SyntaxError as err:

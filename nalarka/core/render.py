@@ -170,14 +170,20 @@ def render_video_pipeline(
                     log_fn(f"[RENDER] {frame_idx + 1}/{total_frames} frames ({int((frame_idx+1)/total_frames*100)}%) | {rate:.1f} fps | ETA {eta:.0f}s")
         finally:
             stop.set()
-            if pool is not None:
-                pool.terminate()
-                pool.join()
             try:
                 if proc.stdin:
                     proc.stdin.close()
             except OSError:
                 pass
+            if pool is not None:
+                try:
+                    pool.close()
+                except Exception:
+                    pass
+                try:
+                    pool.terminate()
+                except Exception:
+                    pass
             if cancel_event and cancel_event.is_set():
                 try:
                     proc.terminate()

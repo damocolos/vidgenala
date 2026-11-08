@@ -222,6 +222,9 @@ def execute_full_render(
     workers: Optional[int] = None,
     output_mp4_path: Optional[Union[str, Path]] = None,
     check_script_fingerprint: bool = True,
+    existing_plan: Optional[dict] = None,
+    existing_namespace: Optional[Dict[str, Any]] = None,
+    on_plan_ready: Optional[Callable[[dict, Dict[str, Any], List[dict]], None]] = None,
 ) -> dict:
     """Executes full video generation pipeline from voiceover and script to verified MP4."""
     ctx.check_cancelled()
@@ -262,22 +265,41 @@ def execute_full_render(
     words = extract_word_timestamps(str(vo), whisper_size, ctx.log, language=whisper_lang)
 
     ctx.check_cancelled()
-    # Pass 1 & Pass 2
-    ctx.set_progress(45, f"Running 2-Pass Storyboard & Vector Artist via '{coder_model}'...")
     scene_mod_path = ctx.workdir / "generated_scenes.py"
-    plan, namespace = generate_two_pass_storyboard_and_code(
-        base_url=base_url,
-        api_key=api_key,
-        model=coder_model,
-        topic=topic,
-        sections=parsed_sections,
-        words=words,
-        total_dur=total_dur,
-        ref_profile=ref_profile,
-        log_fn=ctx.log,
-        cancel_event=ctx.cancel_event,
-        scene_module_path=scene_mod_path,
-    )
+    temp_scene_mod_path = ctx.workdir / ".generated_scenes.tmp"
+
+    if existing_plan:
+        ctx.log(f"[STORYBOARD] Reusing existing storyboard plan with {len(existing_plan.get('scenes', []))} beats (ZERO LLM tokens required).")
+        plan = existing_plan
+        namespace = existing_namespace if existing_namespace is not None else build_namespace(plan.get("scene_sources", {}), ctx.log)
+    else:
+        # Pass 1 & Pass 2
+        ctx.set_progress(45, f"Running 2-Pass Storyboard & Vector Artist via '{coder_model}'...")
+        plan, namespace = generate_two_pass_storyboard_and_code(
+            base_url=base_url,
+            api_key=api_key,
+            model=coder_model,
+            topic=topic,
+            sections=parsed_sections,
+            words=words,
+            total_dur=total_dur,
+            ref_profile=ref_profile,
+            log_fn=ctx.log,
+            cancel_event=ctx.cancel_event,
+            scene_module_path=temp_scene_mod_path,
+        )
+
+    # Persist timeline plan JSON immediately BEFORE audit loop
+    plan_path = ctx.workdir / "timeline_plan.json"
+    with open(plan_path, "w", encoding="utf-8") as f:
+        json.dump(plan, f, indent=2, ensure_ascii=False)
+
+    # Notify callback so plan and transcript are safely saved to SQLite immediately
+    if on_plan_ready:
+        try:
+            on_plan_ready(plan, namespace, words)
+        except Exception as e:
+            ctx.log(f"[WARN] on_plan_ready callback error: {e}")
 
     ctx.check_cancelled()
     # Audit loop
@@ -296,11 +318,10 @@ def execute_full_render(
         max_retries=2,
         progress_fn=ctx.set_progress,
         cancel_event=ctx.cancel_event,
-        scene_module_path=scene_mod_path,
+        scene_module_path=temp_scene_mod_path,
     )
 
-    # Persist timeline plan JSON
-    plan_path = ctx.workdir / "timeline_plan.json"
+    # Update persisted timeline plan JSON after audit loop
     with open(plan_path, "w", encoding="utf-8") as f:
         json.dump(plan, f, indent=2, ensure_ascii=False)
 
@@ -353,6 +374,14 @@ def execute_full_render(
         max_duration=max_duration,
         check_dir=check_dir,
     )
+
+    # Write final generated_scenes.py now that video rendering and verification is complete
+    write_scene_module_file(plan, path=scene_mod_path)
+    if temp_scene_mod_path.exists():
+        try:
+            temp_scene_mod_path.unlink()
+        except OSError:
+            pass
 
     ctx.set_progress(100, f"Render Complete & Verified ({verify_res['passed']}/{verify_res['total']})")
     return {

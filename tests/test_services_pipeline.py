@@ -194,3 +194,38 @@ def test_multi_instance_isolation(tmp_path):
     assert (check_b / "verification_contact_sheet.jpg").exists()
     # Check that A and B did not overwrite each other's check dir
     assert check_a != check_b
+
+
+def test_vectorkit_kwargs_tolerance():
+    from nalarka.core.vectorkit import VectorKit
+    vk = VectorKit(1080, 1920, 1.0, {"start": 0, "end": 3, "bg_color": "cream"}, [], {})
+    # All these unexpected kwargs used to throw TypeError, now handled safely:
+    vk.rect(0, 0, 100, 100, outline="dark", delay=0.1, unknown_param=123)
+    vk.line(0, 0, 50, 50, delay=0.2, extra_arg="test")
+    vk.blob(0, 0, r=50, alpha=200, unexpected=True)
+    vk.droplet(0, 0, r=20, alpha=150, foo="bar")
+    vk.bezier([(0, 0), (20, 20)], angle=15, delay=0.1, baz=None)
+    assert vk.shape_count >= 5
+
+
+def test_extract_python_code_multi_block():
+    from nalarka.core.extractors import extract_python_code_safely
+    raw = """
+<think>
+Some thinking process here
+</think>
+Here is the first function:
+```python
+def beat_01(v):
+    v.circle(0, 0, 50)
+```
+And here is the second function:
+```python
+def beat_02(v):
+    v.rect(0, 0, 50, 50)
+```
+"""
+    code = extract_python_code_safely(raw)
+    assert "def beat_01" in code
+    assert "def beat_02" in code
+    assert "<think>" not in code

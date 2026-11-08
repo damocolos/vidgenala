@@ -35,10 +35,11 @@ def extract_python_code_safely(raw_text: str) -> str:
     if not raw_text or not raw_text.strip():
         raise ValueError("AI returned an empty code response.")
     cleaned = re.sub(r"<think>.*?</think>", "", raw_text, flags=re.DOTALL).strip()
-    # Look for ```python ... ``` block first
-    m = re.search(r"```(?:python)?\s*\n(.*?)```", cleaned, flags=re.DOTALL | re.IGNORECASE)
-    if m:
-        return m.group(1).strip()
+    # Find all ```python ... ``` or ``` ... ``` code blocks
+    blocks = re.findall(r"```(?:python)?\s*\n(.*?)```", cleaned, flags=re.DOTALL | re.IGNORECASE)
+    if blocks:
+        return "\n\n".join(b.strip() for b in blocks)
+    # If no closing block or unclosed markdown
     cleaned = re.sub(r"^```(?:python)?\s*", "", cleaned, flags=re.IGNORECASE)
     cleaned = re.sub(r"\s*```$", "", cleaned)
     return cleaned.strip()
