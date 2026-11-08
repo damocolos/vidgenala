@@ -97,9 +97,9 @@
         {% for r in recent_renders[:5] %}
         <tr>
           <td><strong>Topic #{{ r.topic_id }}</strong></td>
-          <td>{{ r.width }}x{{ r.height }}</td>
-          <td>{{ "%.1f"|format(r.total_dur) }}s</td>
-          <td>{{ r.frame_count }}</td>
+          <td>{% if r.width and r.height %}{{ r.width }}x{{ r.height }}{% else %}-{% endif %}</td>
+          <td>{% if r.total_dur %}{{ "%.1f"|format(r.total_dur) }}s{% else %}-{% endif %}</td>
+          <td>{{ r.frame_count or "-" }}</td>
           <td>
             {% if r.status in ('succeeded', 'done') %}
             <span class="badge badge-green">Ready</span>
@@ -108,8 +108,12 @@
             {% endif %}
           </td>
           <td style="text-align: right;">
+            {% if r.status in ('succeeded', 'done') and r.output_path %}
             <button class="btn btn-secondary btn-sm" onclick="playVideoModal({{ r.id }}, 'Topic #{{ r.topic_id }} Render')">Play</button>
             <a href="/api/renders/{{ r.id }}/download" class="btn btn-secondary btn-sm" download>Download</a>
+            {% else %}
+            <span style="color: var(--text-dim); font-size: 0.8rem;">{{ r.status }}</span>
+            {% endif %}
           </td>
         </tr>
         {% endfor %}

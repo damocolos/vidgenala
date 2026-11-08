@@ -39,10 +39,16 @@
               Topic #{{ r.topic_id }}
             </a>
           </td>
-          <td style="font-family: var(--font-mono); font-size: 0.82rem;">{{ r.output_path.split('\\')[-1].split('/')[-1] }}</td>
-          <td>{{ r.width }}x{{ r.height }}</td>
-          <td>{{ "%.1f"|format(r.total_dur) }}s</td>
-          <td>{{ r.frame_count }}</td>
+          <td style="font-family: var(--font-mono); font-size: 0.82rem;">
+            {% if r.output_path %}
+              {{ r.output_path.split('\\')[-1].split('/')[-1] }}
+            {% else %}
+              -
+            {% endif %}
+          </td>
+          <td>{% if r.width and r.height %}{{ r.width }}x{{ r.height }}{% else %}-{% endif %}</td>
+          <td>{% if r.total_dur %}{{ "%.1f"|format(r.total_dur) }}s{% else %}-{% endif %}</td>
+          <td>{{ r.frame_count or "-" }}</td>
           <td>
             {% if r.verification_passed is sameas true %}
             <button class="badge badge-green" style="border:none; cursor:pointer;" onclick="showVerificationModal({{ r.id }})">7/7 PASSED</button>
@@ -52,11 +58,15 @@
             <span class="badge">Unverified</span>
             {% endif %}
           </td>
-          <td style="color: var(--text-dim); font-size: 0.85rem;">{{ r.created_at[:19] }}</td>
+          <td style="color: var(--text-dim); font-size: 0.85rem;">{{ r.created_at[:19] if r.created_at else '-' }}</td>
           <td style="text-align: right;">
+            {% if r.output_path %}
             <button class="btn btn-secondary btn-sm" onclick="playVideoModal({{ r.id }}, 'Render #{{ r.id }} - Topic #{{ r.topic_id }}')">Play</button>
             <a href="/api/renders/{{ r.id }}/download" class="btn btn-secondary btn-sm" download>Download</a>
             <button class="btn btn-secondary btn-sm" onclick="triggerVerifyHistory({{ r.id }})">Verify</button>
+            {% else %}
+            <span style="color: var(--text-dim); font-size: 0.8rem;">{{ r.status }}</span>
+            {% endif %}
           </td>
         </tr>
         {% endfor %}

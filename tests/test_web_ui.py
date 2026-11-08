@@ -149,3 +149,40 @@ def test_settings_view(client):
     assert "Config Import & Export" in html
     assert "Export config_nalarka.json" in html
     assert "import-config-file" in html
+
+
+def test_topics_and_history_view_with_null_renders(client, monkeypatch):
+    import os
+    from nalarka.db.connection import get_connection
+    from nalarka.db.repos.renders import create_render
+
+    # Create topic
+    t_res = client.post(
+        "/api/topics",
+        json={"title": "Topic Null Test", "language": "Indonesian", "max_duration": 60},
+    )
+    topic_id = t_res.json()["id"]
+
+    # Insert a render record with None total_dur and None output_path
+    db_path = os.environ.get("NALARKA_DB_PATH")
+    conn = get_connection(db_path)
+    create_render(
+        conn=conn,
+        topic_id=topic_id,
+        trigger="full",
+        output_path=None,
+        total_dur=None,
+        width=None,
+        height=None,
+    )
+    conn.close()
+
+    # Access /topics dashboard: should render without 500 error
+    res_topics = client.get("/topics")
+    assert res_topics.status_code == 200
+    assert "Topic Null Test" in res_topics.text
+
+    # Access /history view: should render without 500 error
+    res_history = client.get("/history")
+    assert res_history.status_code == 200
+    assert f"Topic #{topic_id}" in res_history.text

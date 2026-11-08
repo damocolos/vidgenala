@@ -100,3 +100,4 @@ def test_jobrunner_generate_script_and_log_file(tmp_path, monkeypatch):
     log_content = test_log.read_text(encoding="utf-8")
     assert f"[{job_id}]" in log_content
     assert "generate_script" in log_content
+

@@ -140,7 +140,7 @@
       <div class="card-header">
         <div class="card-title">3. Voiceover & Audio Configuration</div>
         <span id="vo-status-badge" class="badge {% if current_voiceover %}badge-green{% else %}badge-orange{% endif %}">
-          {% if current_voiceover %}VO Ready ({{ "%.1f"|format(current_voiceover.duration_sec) }}s){% else %}No VO{% endif %}
+          {% if current_voiceover and current_voiceover.duration_sec %}VO Ready ({{ "%.1f"|format(current_voiceover.duration_sec) }}s){% elif current_voiceover %}VO Ready{% else %}No VO{% endif %}
         </span>
       </div>
 
@@ -215,7 +215,7 @@
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
           <span style="font-size: 0.85rem; font-weight: 600;">Voiceover Preview</span>
           <span id="vo-dur-label" style="font-size: 0.8rem; color: var(--text-muted);">
-            {% if current_voiceover %}{{ "%.1f"|format(current_voiceover.duration_sec) }}s (Target Video: {{ current_voiceover.total_dur_locked }}s){% endif %}
+            {% if current_voiceover and current_voiceover.duration_sec %}{{ "%.1f"|format(current_voiceover.duration_sec) }}s (Target Video: {{ current_voiceover.total_dur_locked or '-' }}s){% endif %}
           </span>
         </div>
         <audio id="vo-audio-player" controls style="width: 100%;">
@@ -291,7 +291,7 @@
         <select id="beat-select" onchange="onBeatSelected(this.value)">
           {% if beats %}
             {% for b in beats %}
-            <option value="{{ b.id }}">Beat #{{ "%02d"|format(b.beat_no) }} [{{ "%.1f"|format(b.start_sec) }}s - {{ "%.1f"|format(b.end_sec) }}s] ({{ b.bg_color }}): {{ b.summary|default(b.visual_blueprint[:50]) }}</option>
+            <option value="{{ b.id }}">Beat #{{ "%02d"|format(b.beat_no) }} [{{ "%.1f"|format(b.start_sec or 0.0) }}s - {{ "%.1f"|format(b.end_sec or 0.0) }}s] ({{ b.bg_color }}): {{ b.summary|default(b.visual_blueprint[:50]) }}</option>
             {% endfor %}
           {% else %}
             <option value="">No beats available yet. Run render pipeline first.</option>
