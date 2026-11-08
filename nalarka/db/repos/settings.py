@@ -129,6 +129,9 @@ def set_provider(
 
     if api_key is not None:
         enc_key = encrypt_secret(api_key.strip()) if api_key.strip() else None
+    elif base_url is not None and base_url.strip().rstrip("/") != (current["base_url"] or "").strip().rstrip("/"):
+        # Never forward a stored key to a different endpoint: the caller must re-enter it.
+        enc_key = None
     else:
         # Keep existing encrypted key
         cur = conn.cursor()

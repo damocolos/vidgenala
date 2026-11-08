@@ -58,3 +58,48 @@ def safe_output_name(name: Optional[str], default: str = "output_motion_graphic.
     if not base.lower().endswith(".mp4"):
         base += ".mp4"
     return base[:120]
+
+
+def max_upload_bytes() -> int:
+    try:
+        return int(float(os.environ.get("NALARKA_MAX_UPLOAD_MB", "500")) * 1024 * 1024)
+    except ValueError:
+        return 500 * 1024 * 1024
+
+
+def safe_upload_name(name: Optional[str], default: str = "upload") -> str:
+    """Plain file name (no directories, no odd characters); keeps the extension."""
+    base = (name or "").replace("\\", "/").split("/")[-1].strip().strip(".")
+    stem, dot, ext = base.rpartition(".")
+    if not dot:
+        stem, ext = base, ""
+    stem = _SAFE_NAME_RE.sub("_", stem).strip(" ._") or default
+    ext = _SAFE_NAME_RE.sub("", ext)[:10]
+    return f"{stem[:100]}.{ext}" if ext else stem[:100]
+
+
+def save_upload(src, dest: Union[str, Path], max_bytes: Optional[int] = None, chunk: int = 1024 * 1024) -> int:
+    """Copy file-like ``src`` to ``dest`` atomically (temp file + replace) with a size cap.
+    Raises ValueError when the cap is exceeded; leaves no partial file behind."""
+    limit = max_upload_bytes() if max_bytes is None else max_bytes
+    dest = Path(dest)
+    tmp = dest.with_name(dest.name + ".part")
+    total = 0
+    try:
+        with open(tmp, "wb") as f:
+            while True:
+                buf = src.read(chunk)
+                if not buf:
+                    break
+                total += len(buf)
+                if total > limit:
+                    raise ValueError(f"File too large (limit {limit // (1024 * 1024)} MB).")
+                f.write(buf)
+        os.replace(tmp, dest)
+    except BaseException:
+        try:
+            tmp.unlink()
+        except OSError:
+            pass
+        raise
+    return total

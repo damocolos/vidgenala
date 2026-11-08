@@ -16,6 +16,47 @@ from ..db.repos.jobs import (
 )
 from ..db.repos.settings import get_setting
 
+def _popen_group_kwargs() -> dict:
+    """Start workers in their own process group so cancel can kill ffmpeg/render children too."""
+    if os.name == "nt":
+        return {"creationflags": getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)}
+    return {"start_new_session": True}
+
+
+def kill_process_tree(proc, grace: float = 2.0) -> None:
+    """Terminate ``proc`` and all its descendants (best effort, never raises)."""
+    try:
+        if proc.poll() is not None and os.name == "nt":
+            return
+        if os.name == "nt":
+            subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"],
+                           capture_output=True, timeout=10)
+            return
+        import signal
+        try:
+            os.killpg(proc.pid, signal.SIGTERM)
+        except (ProcessLookupError, PermissionError):
+            return
+        deadline = time.time() + grace
+        while time.time() < deadline:
+            proc.poll()  # reap the leader so the group can disappear
+            try:
+                os.killpg(proc.pid, 0)  # group still has members?
+            except ProcessLookupError:
+                return
+            time.sleep(0.05)
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        try:
+            proc.wait(timeout=1.0)  # reap
+        except Exception:
+            pass
+    except Exception:
+        pass
+
+
 HEAVY_KINDS = {"full_render", "reroll_beat", "preview_beat", "verify_mp4", "generate_tts"}
 TOPIC_LOCKED_KINDS = {"full_render", "reroll_beat"}
 
@@ -168,7 +209,7 @@ class JobDispatcher:
             pass
 
         # Avoid shell=True to avoid subshell escaping issues
-        proc = subprocess.Popen(cmd)
+        proc = subprocess.Popen(cmd, **_popen_group_kwargs())
         with self._lock:
             self._running_procs[jid] = proc
 
@@ -194,15 +235,8 @@ class JobDispatcher:
 
             with self._lock:
                 proc = self._running_procs.pop(job_id, None)
-                if proc and proc.poll() is None:
-                    try:
-                        proc.terminate()
-                        proc.wait(timeout=2.0)
-                    except Exception:
-                        try:
-                            proc.kill()
-                        except Exception:
-                            pass
+                if proc:
+                    kill_process_tree(proc)
 
             update_job_status(
                 conn, job_id, status="canceled",
@@ -234,9 +268,5 @@ class JobDispatcher:
             self._thread.join(timeout=3.0)
         with self._lock:
             for jid, proc in list(self._running_procs.items()):
-                if proc.poll() is None:
-                    try:
-                        proc.terminate()
-                    except Exception:
-                        pass
+                kill_process_tree(proc)
             self._running_procs.clear()

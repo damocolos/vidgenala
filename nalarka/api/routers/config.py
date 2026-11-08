@@ -16,6 +16,7 @@ from ...db.repos.settings import (
 )
 from ...db.repos.jobs import create_job
 from ...services.config_importer import export_legacy_config, import_legacy_config_dict
+from ...services.settings_validation import validate_settings
 from ...services.secrets import encrypt_secret, decrypt_secret
 from ...core.script import script_word_budget, script_section_count
 
@@ -31,13 +32,12 @@ def get_config(conn: sqlite3.Connection = Depends(get_db_conn)) -> Dict[str, Any
 
 @router.put("/config")
 def update_config(req: ConfigUpdateRequest, conn: sqlite3.Connection = Depends(get_db_conn)) -> Dict[str, Any]:
-    for k, v in req.settings.items():
-        if k == "render.max_duration":
-            v = max(15, min(900, int(v)))
-        elif k == "render.workers":
-            v = max(1, min(16, int(v)))
+    clean, errors = validate_settings(req.settings)
+    if errors:
+        raise HTTPException(status_code=422, detail=errors)
+    for k, v in clean.items():
         set_setting(conn, k, v)
-    return {"status": "ok", "updated": len(req.settings)}
+    return {"status": "ok", "updated": len(clean)}
 
 
 @router.get("/config/export")

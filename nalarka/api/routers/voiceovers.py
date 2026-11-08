@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Optional, Dict, Any
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Request, status
 
+from ...services.paths import save_upload
 from ..deps import get_db_conn, get_dispatcher
 from ..schemas import GenerateTTSRequest, JobAcceptedResponse
 from ..range_stream import range_stream_response
@@ -55,7 +56,7 @@ def generate_voiceover_endpoint(
 
 
 @router.post("/topics/{topic_id}/voiceovers/upload", status_code=status.HTTP_201_CREATED)
-async def upload_voiceover_endpoint(
+def upload_voiceover_endpoint(
     topic_id: int,
     file: UploadFile = File(...),
     conn: sqlite3.Connection = Depends(get_db_conn),
@@ -73,8 +74,10 @@ async def upload_voiceover_endpoint(
     saved_name = f"vo_{topic_id}_{uuid.uuid4().hex[:6]}{suffix}"
     dest_path = dest_dir / saved_name
 
-    with open(dest_path, "wb") as f:
-        shutil.copyfileobj(file.file, f)
+    try:
+        save_upload(file.file, dest_path)
+    except ValueError as e:
+        raise HTTPException(status_code=413, detail=str(e))
 
     dur = get_audio_duration(str(dest_path), lambda m: None)
     total_dur = math.ceil(dur + INTRO_OUTRO_SECONDS)

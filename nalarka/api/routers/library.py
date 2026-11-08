@@ -8,6 +8,7 @@ from typing import Optional, List, Dict, Any
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Request, Query, status
 from pydantic import BaseModel
 
+from ...services.paths import safe_upload_name, save_upload
 from ..deps import get_db_conn, get_dispatcher
 from ..schemas import JobAcceptedResponse
 from ..range_stream import range_stream_response
@@ -35,7 +36,7 @@ def get_library(
 
 
 @router.post("/library/upload", status_code=status.HTTP_201_CREATED)
-async def upload_library_file(
+def upload_library_file(
     kind: str = Query("reference", pattern=r"^(reference|bgm|voiceover_upload)$"),
     file: UploadFile = File(...),
     conn: sqlite3.Connection = Depends(get_db_conn),
@@ -50,11 +51,13 @@ async def upload_library_file(
 
     dest_dir = Path("data") / "library" / kind
     dest_dir.mkdir(parents=True, exist_ok=True)
-    filename = Path(file.filename).name
+    filename = safe_upload_name(file.filename)
     dest_path = dest_dir / filename
 
-    with open(dest_path, "wb") as f:
-        shutil.copyfileobj(file.file, f)
+    try:
+        save_upload(file.file, dest_path)
+    except ValueError as e:
+        raise HTTPException(status_code=413, detail=str(e))
 
     media_type = "video" if suffix in (".mp4", ".mov", ".mkv", ".webm") else (
         "audio" if suffix in (".mp3", ".wav", ".m4a", ".ogg") else "image"

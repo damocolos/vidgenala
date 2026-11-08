@@ -207,3 +207,101 @@ def test_api_preview_image_outside_data_dir_404(api_client, tmp_path):
 def test_api_rejects_foreign_origin_and_host(api_client):
     assert api_client.get("/healthz", headers={"Origin": "https://evil.example"}).status_code == 403
     assert api_client.get("/healthz", headers={"Host": "evil.example"}).status_code == 400
+
+
+# =================== patch 2 ===================
+import io
+import os
+import signal
+import subprocess
+import sys
+
+from nalarka.services.paths import safe_upload_name, save_upload
+from nalarka.services.settings_validation import validate_settings
+from nalarka.db.repos.settings import get_provider
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX process groups")
+def test_kill_process_tree_kills_grandchildren(tmp_path):
+    from nalarka.jobs.dispatcher import kill_process_tree, _popen_group_kwargs
+    pidfile = tmp_path / "child.pid"
+    code = (
+        "import subprocess,sys,time;"
+        f"c=subprocess.Popen([sys.executable,'-c','import time;time.sleep(60)']);"
+        f"open(r'{pidfile}','w').write(str(c.pid));time.sleep(60)"
+    )
+    proc = subprocess.Popen([sys.executable, "-c", code], **_popen_group_kwargs())
+    for _ in range(100):
+        if pidfile.exists() and pidfile.read_text():
+            break
+        time.sleep(0.05)
+    child = int(pidfile.read_text())
+    os.kill(child, 0)  # alive
+    kill_process_tree(proc)
+    time.sleep(0.2)
+    with pytest.raises(ProcessLookupError):
+        os.kill(child, 0)
+    assert proc.poll() is not None
+
+
+def test_workers_spawn_in_own_group(tmp_path, monkeypatch):
+    import nalarka.jobs.dispatcher as d
+    seen = {}
+
+    class P:
+        pid = 1
+        def poll(self): return None
+
+    monkeypatch.setattr(d.subprocess, "Popen", lambda cmd, **kw: seen.update(kw) or P())
+    c = get_connection(tmp_path / "g.db"); run_migrations(c); seed_defaults(c)
+    create_job(c, "scan-g", kind="scan_library", weight="light", params={}); c.close()
+    d.JobDispatcher(db_path=str(tmp_path / "g.db")).dispatch_next()
+    assert seen.get("start_new_session") is True or "creationflags" in seen
+
+
+def test_save_upload_limit_and_atomic(tmp_path):
+    dest = tmp_path / "a.mp4"
+    assert save_upload(io.BytesIO(b"x" * 100), dest, max_bytes=100) == 100
+    assert dest.read_bytes() == b"x" * 100
+    with pytest.raises(ValueError):
+        save_upload(io.BytesIO(b"y" * 101), dest, max_bytes=100, chunk=10)
+    assert dest.read_bytes() == b"x" * 100          # old file untouched
+    assert not list(tmp_path.glob("*.part"))         # no partial left
+
+
+def test_safe_upload_name():
+    assert safe_upload_name("../../evil.mp4") == "evil.mp4"
+    assert safe_upload_name("C:\\x\\clip one.MP4") == "clip one.MP4"
+    assert safe_upload_name("..") == "upload"
+    assert safe_upload_name("a b;c.mp3") == "a b_c.mp3"
+
+
+def test_validate_settings(tmp_path):
+    ok, err = validate_settings({"render.max_duration": "9999", "render.workers": 0,
+                                 "render.synth_bgm": "false", "tts.stability": 5})
+    assert not err
+    assert ok == {"render.max_duration": 900, "render.workers": 1,
+                  "render.synth_bgm": False, "tts.stability": 1.0}
+    _, err = validate_settings({"tts.elevenlabs_api_key_enc": "x"})
+    assert err and "unknown" in err[0]
+    _, err = validate_settings({"render.max_duration": "abc", "render.workers": None})
+    assert len(err) == 2                              # 422, not a 500
+    ok, _ = validate_settings({"render.output_name": "../../x"})
+    assert ok["render.output_name"] == "x.mp4"
+    _, err = validate_settings({"library.dir": str(tmp_path / "missing")})
+    assert err
+    ok, err = validate_settings({"library.dir": str(tmp_path)})
+    assert not err
+
+
+def test_base_url_change_drops_stored_key(db):
+    set_provider(db, "openrouter", api_key="sk-or-KEEP")
+    # same URL (even with trailing slash) keeps the key
+    set_provider(db, "openrouter", base_url=get_provider(db, "openrouter")["base_url"] + "/")
+    assert get_provider(db, "openrouter")["api_key"] == "sk-or-KEEP"
+    # a different endpoint must not inherit it
+    set_provider(db, "openrouter", base_url="https://attacker.example/v1")
+    assert not get_provider(db, "openrouter")["has_key"]
+    # ...unless the caller supplies a key together with the URL
+    set_provider(db, "openrouter", base_url="https://ok.example/v1", api_key="sk-new")
+    assert get_provider(db, "openrouter")["api_key"] == "sk-new"
