@@ -11,6 +11,7 @@ from fastapi.responses import JSONResponse
 
 from starlette.staticfiles import StaticFiles
 
+from .security import LocalSecurityMiddleware
 from .deps import get_dispatcher, set_dispatcher
 from .routers import (
     config_router, topics_router, voiceovers_router,
@@ -54,13 +55,16 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
+    # The bundled UI is same-origin, so CORS is only needed for local dev servers.
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
-        allow_credentials=True,
+        allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$",
+        allow_credentials=False,
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    # Added last => outermost: Host/Origin/token checks run before anything else.
+    app.add_middleware(LocalSecurityMiddleware)
 
     # Healthcheck
     @app.get("/healthz")

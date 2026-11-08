@@ -154,7 +154,7 @@ def export_legacy_config(conn: sqlite3.Connection, include_secrets: bool = False
             active_key = k
         prov_data[k] = {
             "base_url": p["base_url"],
-            "api_key": p["api_key"] if include_secrets else (p["api_key"] if p["has_key"] else ""),
+            "api_key": (p["api_key"] or "") if include_secrets else "",
             "coder_model": p["coder_model"],
             "script_model": p["script_model"],
         }

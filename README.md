@@ -52,3 +52,15 @@ Open your browser at `http://127.0.0.1:8000`.
 python nalarka_local.py
 ```
 
+
+## Keamanan lokal (env opsional)
+
+| Variabel | Fungsi |
+|---|---|
+| `NALARKA_ALLOWED_HOSTS` | Host tambahan yang boleh mengakses API (default: localhost, 127.0.0.1, ::1) |
+| `NALARKA_ALLOWED_ORIGINS` | Origin tambahan (mis. `https://studio.example.com`) |
+| `NALARKA_API_TOKEN` | Jika diisi, `/api/*` butuh token (`X-Nalarka-Token`, `Bearer`, atau cookie dari `GET /auth?token=...`) |
+| `NALARKA_DATA_DIR` | Folder data (default `data`) |
+| `NALARKA_MEDIA_DIRS` | Folder tambahan (dipisah `os.pathsep`) untuk `vo_path`/`ref_path`/`bgm_path` |
+
+`vo_path`, `ref_path`, `bgm_path`, dan `/api/renders/preview-image` hanya menerima file di dalam `data/`, folder library, atau `NALARKA_MEDIA_DIRS`.

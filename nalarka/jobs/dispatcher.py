@@ -35,6 +35,8 @@ class JobDispatcher:
 
         self._running_procs: Dict[str, subprocess.Popen] = {}
         self._lock = threading.Lock()
+        # Serialises dispatch_next(): called from the poll thread AND from API endpoints.
+        self._dispatch_lock = threading.Lock()
         self._stop_event = threading.Event()
         self._thread: Optional[threading.Thread] = None
 
@@ -110,6 +112,10 @@ class JobDispatcher:
 
     def dispatch_next(self) -> None:
         """Examines queued jobs and spawns workers within concurrency boundaries."""
+        with self._dispatch_lock:
+            self._dispatch_next_locked()
+
+    def _dispatch_next_locked(self) -> None:
         conn = self._get_db()
         try:
             # Poll status of running processes

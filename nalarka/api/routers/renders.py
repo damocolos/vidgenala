@@ -21,6 +21,17 @@ from ...db.repos.storyboards import (
     get_beat, list_revisions_for_beat,
 )
 from ...db.repos.jobs import create_job
+from ...db.repos.settings import get_setting
+from ...services.paths import media_roots, resolve_media_path, safe_output_name, is_within
+
+
+def _checked_media(conn, raw):
+    if raw is None or str(raw).strip() == "":
+        return None
+    try:
+        return str(resolve_media_path(raw, media_roots([get_setting(conn, "library.dir", None)])))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid media path: {e}")
 
 router = APIRouter(tags=["Renders & Storyboards"])
 
@@ -41,14 +52,14 @@ def trigger_full_render(
         conn, job_id, kind="full_render", weight="heavy",
         params={
             "voiceover_id": req.voiceover_id,
-            "vo_path": req.vo_path,
-            "ref_path": req.ref_path,
+            "vo_path": _checked_media(conn, req.vo_path),
+            "ref_path": _checked_media(conn, req.ref_path),
             "orientation": req.orientation,
             "whisper_size": req.whisper_size,
             "synth_bgm": req.synth_bgm,
-            "bgm_path": req.bgm_path,
+            "bgm_path": _checked_media(conn, req.bgm_path),
             "workers": req.workers,
-            "output_name": req.output_name,
+            "output_name": safe_output_name(req.output_name),
             "storyboard_id": req.storyboard_id,
             "reuse_storyboard": req.reuse_storyboard,
         },
@@ -70,10 +81,15 @@ def get_renders_list(
 
 
 @router.get("/renders/preview-image")
-def get_preview_image(path: str = Query(...)):
-    p = Path(path).resolve()
-    # Check that file exists and is png/jpg/jpeg/webp
-    if not p.exists() or p.suffix.lower() not in (".png", ".jpg", ".jpeg", ".webp"):
+def get_preview_image(path: str = Query(...), conn: sqlite3.Connection = Depends(get_db_conn)):
+    try:
+        p = Path(path).resolve()
+    except (OSError, ValueError):
+        raise HTTPException(status_code=404, detail="Preview image not found.")
+    # Must be an existing png/jpg/jpeg/webp *inside* the data dir / library dir
+    roots = media_roots([get_setting(conn, "library.dir", None)])
+    if (not is_within(p, roots) or not p.is_file()
+            or p.suffix.lower() not in (".png", ".jpg", ".jpeg", ".webp")):
         raise HTTPException(status_code=404, detail="Preview image not found.")
     media_type = "image/png" if p.suffix.lower() == ".png" else "image/jpeg"
     return FileResponse(p, media_type=media_type)

@@ -49,6 +49,7 @@ from ..core.tts import (
     fetch_elevenlabs_voices,
 )
 from ..services.secrets import decrypt_secret
+from ..services.paths import safe_output_name
 
 
 def run_job(job_id: str, db_path: Optional[str] = None) -> int:
@@ -245,7 +246,7 @@ def run_job(job_id: str, db_path: Optional[str] = None) -> int:
             bgm_path = params.get("bgm_path")
             synth_bgm = params.get("synth_bgm", get_setting(conn, "render.synth_bgm", True))
             workers = params.get("workers", get_setting(conn, "render.workers", None))
-            out_mp4 = workdir / (params.get("output_name") or get_setting(conn, "render.output_name", "output_motion_graphic.mp4"))
+            out_mp4 = workdir / safe_output_name(params.get("output_name") or get_setting(conn, "render.output_name", "output_motion_graphic.mp4"))
 
             # Create render record
             rid = create_render(
@@ -435,7 +436,7 @@ def run_job(job_id: str, db_path: Optional[str] = None) -> int:
             tr_row = cur.fetchone()
             words = json.loads(tr_row["words_json"]) if tr_row else []
 
-            out_mp4 = workdir / (params.get("output_name") or "output_motion_graphic_reroll.mp4")
+            out_mp4 = workdir / safe_output_name(params.get("output_name"), "output_motion_graphic_reroll.mp4")
             beat_idx = int(beat_row["beat_no"]) - 1
 
             rid = create_render(
