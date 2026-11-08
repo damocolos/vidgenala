@@ -20,10 +20,14 @@ from ..web.routes import web_router
 from ..db.connection import get_connection, run_migrations
 from ..db.seed import seed_defaults
 from ..jobs.dispatcher import JobDispatcher
+from ..core.logging_setup import setup_logging
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Initialize logging to nalarka_debug.log
+    setup_logging()
+
     # Startup: Ensure migrations and seeds are applied
     conn = get_connection()
     try:

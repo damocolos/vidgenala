@@ -118,7 +118,7 @@ def execute_generate_script(
         api_key=api_key,
         model=model,
         topic=topic,
-        language=language,
+        script_lang=language,
         log_fn=ctx.log,
         max_duration=max_duration,
     )

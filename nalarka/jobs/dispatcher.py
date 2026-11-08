@@ -2,9 +2,11 @@
 import os
 import sys
 import time
+import logging
 import subprocess
 import threading
 import sqlite3
+from datetime import datetime
 from pathlib import Path
 from typing import Dict, Optional, List, Set
 
@@ -80,6 +82,12 @@ class JobDispatcher:
             conn.close()
 
     def can_start_job(self, job: dict, active_jobs: List[dict]) -> bool:
+        jid = job.get("id")
+        if jid:
+            with self._lock:
+                if jid in self._running_procs:
+                    return False
+
         is_heavy = job["kind"] in HEAVY_KINDS
         running_jobs = [j for j in active_jobs if j["status"] == "running"]
         running_heavy = sum(1 for j in running_jobs if j["kind"] in HEAVY_KINDS)
@@ -110,9 +118,20 @@ class JobDispatcher:
                 for jid, proc in list(self._running_procs.items()):
                     ret = proc.poll()
                     if ret is not None:
-                        finished_jids.append(jid)
-                for jid in finished_jids:
+                        finished_jids.append((jid, ret))
+                for jid, ret in finished_jids:
                     self._running_procs.pop(jid, None)
+                    if ret != 0:
+                        try:
+                            j = get_job(conn, jid)
+                            if j and j["status"] in ("queued", "running"):
+                                update_job_status(
+                                    conn, jid, status="failed",
+                                    error=j.get("error") or f"Worker process crashed (exit code {ret})",
+                                    finished_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                                )
+                        except Exception:
+                            pass
 
             active = list_active_jobs(conn)
             queued = [j for j in active if j["status"] == "queued"]
@@ -127,15 +146,37 @@ class JobDispatcher:
 
     def _spawn_job_process(self, job: dict) -> None:
         jid = job["id"]
+        with self._lock:
+            if jid in self._running_procs:
+                return
+
         cmd = [sys.executable, "-m", "nalarka.jobs.jobrunner", jid]
         if self.db_path:
             cmd.append(str(self.db_path))
 
-        print(f"[DISPATCHER] Spawning worker subprocess for job {jid} ({job['kind']})...", flush=True)
+        msg = f"[DISPATCHER] Spawning worker subprocess for job {jid} ({job['kind']})..."
+        print(msg, flush=True)
+        try:
+            logging.info(msg)
+        except Exception:
+            pass
+
         # Avoid shell=True to avoid subshell escaping issues
         proc = subprocess.Popen(cmd)
         with self._lock:
             self._running_procs[jid] = proc
+
+        # Immediately transition job to 'running' in DB so subsequent ticks don't re-queue it
+        try:
+            conn = self._get_db()
+            now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            update_job_status(conn, jid, status="running", pid=proc.pid, started_at=now_str)
+            conn.close()
+        except Exception as e:
+            try:
+                logging.error(f"[DISPATCHER] Failed updating job status to running for {jid}: {e}")
+            except Exception:
+                pass
 
     def cancel_job(self, job_id: str) -> bool:
         """Cancels a job and terminates its subprocess if currently running."""

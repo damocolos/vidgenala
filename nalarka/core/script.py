@@ -1,7 +1,7 @@
 """Duration-aware voiceover script generation and budget estimation."""
 import math
 import json
-from typing import Tuple, Dict, Any, List
+from typing import Tuple, Dict, Any, List, Optional
 
 from .constants import (
     DEFAULT_MAX_DURATION,
@@ -58,11 +58,14 @@ def generate_script(
     api_key: str,
     model: str,
     topic: str,
-    script_lang: str,
-    log_fn,
+    script_lang: Optional[str] = None,
+    log_fn=print,
     max_duration: int = DEFAULT_MAX_DURATION,
+    *,
+    language: Optional[str] = None,
 ) -> dict:
-    is_id = "Indonesian" in script_lang
+    effective_lang = script_lang or language or "Indonesian"
+    is_id = "Indonesian" in effective_lang
     lang_instruction = (
         "Tulis naskah voiceover dalam Bahasa Indonesia lisan yang natural, mengalir, dan kaya gambaran objek visual nyata."
         if is_id

@@ -84,13 +84,28 @@ function connectJobEvents(jobId, options = {}) {
 
   evtSource.addEventListener("done", (e) => {
     evtSource.close();
+    let data = null;
+    try {
+      data = e.data ? JSON.parse(e.data) : null;
+    } catch (_) {}
+
+    if (data && (data.status === "failed" || data.status === "canceled" || data.error)) {
+      if (statusEl) {
+        statusEl.textContent = data.status === "canceled" ? "Canceled" : "Failed";
+        statusEl.className = "badge badge-red";
+      }
+      showToast(`Job ${data.status || 'failed'}: ${data.error || 'Unknown error'}`, "error");
+      if (onError) onError(data);
+      return;
+    }
+
     if (progressEl) progressEl.value = 100;
     if (statusEl) {
       statusEl.textContent = "Completed";
       statusEl.className = "badge badge-green";
     }
     showToast("Job completed successfully!", "success");
-    if (onDone) onDone(e.data ? JSON.parse(e.data) : null);
+    if (onDone) onDone(data);
   });
 
   evtSource.addEventListener("error", (e) => {

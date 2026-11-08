@@ -2,10 +2,13 @@
 import os
 import sys
 import json
+import logging
 import traceback
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
+
+from ..core.logging_setup import setup_logging
 
 from ..db.connection import get_connection, run_migrations
 from ..db.repos.jobs import (
@@ -50,6 +53,7 @@ from ..services.secrets import decrypt_secret
 
 def run_job(job_id: str, db_path: Optional[str] = None) -> int:
     """Executes a single job by id inside this process."""
+    setup_logging()
     conn = get_connection(db_path)
     run_migrations(conn)
 
@@ -483,13 +487,16 @@ def run_job(job_id: str, db_path: Optional[str] = None) -> int:
         err_msg = str(exc)
         stack = traceback.format_exc()
         ctx.log(f"[JOB ERROR] {err_msg}\n{stack}")
+        try:
+            logging.error(f"[JOB ERROR] {job_id}: {err_msg}\n{stack}")
+        except Exception:
+            pass
         emitter.flush()
         now_end = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         update_job_status(
             conn, job_id, status="failed", error=err_msg,
             finished_at=now_end,
         )
-        append_job_event(conn, job_id, "error", err_msg)
         return 1
 
     finally:

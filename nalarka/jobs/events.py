@@ -1,4 +1,5 @@
 """Buffered event emitter for background jobs."""
+import logging
 import time
 import queue
 import threading
@@ -39,6 +40,10 @@ class JobEventEmitter:
     def log(self, message: str) -> None:
         formatted = self._format_log_message(message)
         print(formatted, flush=True)
+        try:
+            logging.info(f"[{self.job_id}] {message}")
+        except Exception:
+            pass
         with self._lock:
             self._buffer.append((self.job_id, "log", formatted, None))
             if len(self._buffer) >= self.batch_size or (time.time() - self._last_flush) >= self.flush_interval:
