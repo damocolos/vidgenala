@@ -18,22 +18,23 @@ def create_voiceover(
     total_dur_locked: Optional[int] = None,
     script_fingerprint: Optional[str] = None,
 ) -> int:
-    cur = conn.cursor()
-    cur.execute(
-        """
-        INSERT INTO voiceovers (
-            topic_id, script_id, origin, provider, voice, model_id,
-            params_json, file_path, duration_sec, total_dur_locked,
-            script_fingerprint, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
-        """,
-        (
-            topic_id, script_id, origin, provider, voice, model_id,
-            json.dumps(params or {}, ensure_ascii=False),
-            file_path, duration_sec, total_dur_locked, script_fingerprint,
-        ),
-    )
-    return cur.lastrowid
+    with conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            INSERT INTO voiceovers (
+                topic_id, script_id, origin, provider, voice, model_id,
+                params_json, file_path, duration_sec, total_dur_locked,
+                script_fingerprint, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+            """,
+            (
+                topic_id, script_id, origin, provider, voice, model_id,
+                json.dumps(params or {}, ensure_ascii=False),
+                file_path, duration_sec, total_dur_locked, script_fingerprint,
+            ),
+        )
+        return cur.lastrowid
 
 
 def get_voiceover(conn: sqlite3.Connection, voiceover_id: int) -> Optional[dict]:
@@ -65,15 +66,16 @@ def create_transcript(
     language: Optional[str],
     words: List[dict],
 ) -> int:
-    cur = conn.cursor()
-    cur.execute(
-        """
-        INSERT INTO transcripts (voiceover_id, whisper_size, language, words_json, created_at)
-        VALUES (?, ?, ?, ?, datetime('now'))
-        """,
-        (voiceover_id, whisper_size, language, json.dumps(words, ensure_ascii=False)),
-    )
-    return cur.lastrowid
+    with conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            INSERT INTO transcripts (voiceover_id, whisper_size, language, words_json, created_at)
+            VALUES (?, ?, ?, ?, datetime('now'))
+            """,
+            (voiceover_id, whisper_size, language, json.dumps(words, ensure_ascii=False)),
+        )
+        return cur.lastrowid
 
 
 def get_transcript(conn: sqlite3.Connection, transcript_id: int) -> Optional[dict]:

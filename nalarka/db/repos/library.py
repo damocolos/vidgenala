@@ -28,32 +28,33 @@ def upsert_library_item(
     origin: str = "upload",
 ) -> int:
     profile_str = json.dumps(profile, ensure_ascii=False) if profile else None
-    cur = conn.cursor()
-    cur.execute(
-        """
-        INSERT INTO library_items (
-            kind, filename, file_path, media_type, size_bytes, sha256,
-            width, height, profile_json, origin, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
-        ON CONFLICT(kind, filename) DO UPDATE SET
-            file_path = excluded.file_path,
-            media_type = excluded.media_type,
-            size_bytes = excluded.size_bytes,
-            sha256 = excluded.sha256,
-            width = excluded.width,
-            height = excluded.height,
-            profile_json = excluded.profile_json,
-            origin = excluded.origin
-        """,
-        (
-            kind, filename, file_path, media_type, size_bytes, sha256,
-            width, height, profile_str, origin,
-        ),
-    )
-    if cur.lastrowid:
-        return cur.lastrowid
-    cur.execute("SELECT id FROM library_items WHERE kind = ? AND filename = ?", (kind, filename))
-    return cur.fetchone()[0]
+    with conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            INSERT INTO library_items (
+                kind, filename, file_path, media_type, size_bytes, sha256,
+                width, height, profile_json, origin, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+            ON CONFLICT(kind, filename) DO UPDATE SET
+                file_path = excluded.file_path,
+                media_type = excluded.media_type,
+                size_bytes = excluded.size_bytes,
+                sha256 = excluded.sha256,
+                width = excluded.width,
+                height = excluded.height,
+                profile_json = excluded.profile_json,
+                origin = excluded.origin
+            """,
+            (
+                kind, filename, file_path, media_type, size_bytes, sha256,
+                width, height, profile_str, origin,
+            ),
+        )
+        if cur.lastrowid:
+            return cur.lastrowid
+        cur.execute("SELECT id FROM library_items WHERE kind = ? AND filename = ?", (kind, filename))
+        return cur.fetchone()[0]
 
 
 def get_library_item(conn: sqlite3.Connection, item_id: int) -> Optional[dict]:
@@ -93,9 +94,10 @@ def list_library_items(conn: sqlite3.Connection, kind: Optional[str] = None) -> 
 
 
 def delete_library_item(conn: sqlite3.Connection, item_id: int) -> bool:
-    cur = conn.cursor()
-    cur.execute("DELETE FROM library_items WHERE id = ?", (item_id,))
-    return cur.rowcount > 0
+    with conn:
+        cur = conn.cursor()
+        cur.execute("DELETE FROM library_items WHERE id = ?", (item_id,))
+        return cur.rowcount > 0
 
 
 def sync_library_folder(conn: sqlite3.Connection, folder_path: Path, log_fn=print) -> dict:

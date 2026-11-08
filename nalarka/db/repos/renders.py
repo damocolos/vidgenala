@@ -20,23 +20,24 @@ def create_render(
     orientation: Optional[str] = None,
     output_path: Optional[str] = None,
 ) -> int:
-    cur = conn.cursor()
-    cur.execute(
-        """
-        INSERT INTO renders (
-            topic_id, storyboard_id, voiceover_id, bgm_item_id, trigger,
-            status, width, height, total_dur, workers, whisper_size,
-            synth_bgm, orientation, output_path, created_at
-        ) VALUES (?, ?, ?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
-        """,
-        (
-            topic_id, storyboard_id, voiceover_id, bgm_item_id, trigger,
-            width, height, total_dur, workers, whisper_size,
-            int(synth_bgm) if synth_bgm is not None else None,
-            orientation, output_path,
-        ),
-    )
-    return cur.lastrowid
+    with conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            INSERT INTO renders (
+                topic_id, storyboard_id, voiceover_id, bgm_item_id, trigger,
+                status, width, height, total_dur, workers, whisper_size,
+                synth_bgm, orientation, output_path, created_at
+            ) VALUES (?, ?, ?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+            """,
+            (
+                topic_id, storyboard_id, voiceover_id, bgm_item_id, trigger,
+                width, height, total_dur, workers, whisper_size,
+                int(synth_bgm) if synth_bgm is not None else None,
+                orientation, output_path,
+            ),
+        )
+        return cur.lastrowid
 
 
 def update_render_status(
@@ -58,15 +59,16 @@ def update_render_status(
     upd_started = started_at if started_at is not None else current["started_at"]
     upd_finished = finished_at if finished_at is not None else current["finished_at"]
 
-    conn.execute(
-        """
-        UPDATE renders
-        SET status = ?, error = ?, output_path = ?, file_size = ?,
-            started_at = ?, finished_at = ?
-        WHERE id = ?
-        """,
-        (status, error, upd_path, upd_size, upd_started, upd_finished, render_id),
-    )
+    with conn:
+        conn.execute(
+            """
+            UPDATE renders
+            SET status = ?, error = ?, output_path = ?, file_size = ?,
+                started_at = ?, finished_at = ?
+            WHERE id = ?
+            """,
+            (status, error, upd_path, upd_size, upd_started, upd_finished, render_id),
+        )
 
 
 def get_render(conn: sqlite3.Connection, render_id: int) -> Optional[dict]:
@@ -99,21 +101,22 @@ def create_verification(
     contact_sheet_path: Optional[str] = None,
     max_duration_used: Optional[int] = None,
 ) -> int:
-    cur = conn.cursor()
-    cur.execute(
-        """
-        INSERT INTO verifications (
-            render_id, passed, total, duration_sec, frames,
-            results_json, contact_sheet_path, max_duration_used, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
-        """,
-        (
-            render_id, passed, total, duration_sec, frames,
-            json.dumps(results or [], ensure_ascii=False),
-            contact_sheet_path, max_duration_used,
-        ),
-    )
-    return cur.lastrowid
+    with conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            INSERT INTO verifications (
+                render_id, passed, total, duration_sec, frames,
+                results_json, contact_sheet_path, max_duration_used, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+            """,
+            (
+                render_id, passed, total, duration_sec, frames,
+                json.dumps(results or [], ensure_ascii=False),
+                contact_sheet_path, max_duration_used,
+            ),
+        )
+        return cur.lastrowid
 
 
 def get_verification_for_render(conn: sqlite3.Connection, render_id: int) -> Optional[dict]:

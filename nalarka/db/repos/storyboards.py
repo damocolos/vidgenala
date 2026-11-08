@@ -16,24 +16,25 @@ def create_storyboard(
     ref_item_id: Optional[int] = None,
     is_current: bool = True,
 ) -> int:
-    if is_current:
-        conn.execute("UPDATE storyboards SET is_current = 0 WHERE topic_id = ? AND is_current = 1", (topic_id,))
+    with conn:
+        if is_current:
+            conn.execute("UPDATE storyboards SET is_current = 0 WHERE topic_id = ? AND is_current = 1", (topic_id,))
 
-    cur = conn.cursor()
-    cur.execute(
-        """
-        INSERT INTO storyboards (
-            topic_id, script_id, voiceover_id, transcript_id, reference_item_id,
-            coder_model, total_dur, palette_json, is_current, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
-        """,
-        (
-            topic_id, script_id, voiceover_id, transcript_id, ref_item_id,
-            coder_model, total_dur, json.dumps(palette, ensure_ascii=False),
-            int(is_current),
-        ),
-    )
-    return cur.lastrowid
+        cur = conn.cursor()
+        cur.execute(
+            """
+            INSERT INTO storyboards (
+                topic_id, script_id, voiceover_id, transcript_id, reference_item_id,
+                coder_model, total_dur, palette_json, is_current, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+            """,
+            (
+                topic_id, script_id, voiceover_id, transcript_id, ref_item_id,
+                coder_model, total_dur, json.dumps(palette, ensure_ascii=False),
+                int(is_current),
+            ),
+        )
+        return cur.lastrowid
 
 
 def get_storyboard(conn: sqlite3.Connection, storyboard_id: int) -> Optional[dict]:
@@ -87,39 +88,40 @@ def insert_beat(
     code_status: str = "ok",
     audit: Optional[dict] = None,
 ) -> int:
-    cur = conn.cursor()
-    cur.execute(
-        """
-        INSERT INTO beats (
-            storyboard_id, beat_no, start_sec, end_sec, layout, bg_color,
-            transition, summary, visual_blueprint, dot_index, lines_json,
-            extra_json, source_code, code_status, audit_json
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(storyboard_id, beat_no) DO UPDATE SET
-            start_sec = excluded.start_sec,
-            end_sec = excluded.end_sec,
-            layout = excluded.layout,
-            bg_color = excluded.bg_color,
-            transition = excluded.transition,
-            summary = excluded.summary,
-            visual_blueprint = excluded.visual_blueprint,
-            dot_index = excluded.dot_index,
-            lines_json = excluded.lines_json,
-            extra_json = excluded.extra_json,
-            source_code = excluded.source_code,
-            code_status = excluded.code_status,
-            audit_json = excluded.audit_json
-        """,
-        (
-            storyboard_id, beat_no, start_sec, end_sec, layout, bg_color,
-            transition, summary, visual_blueprint, dot_index,
-            json.dumps(lines, ensure_ascii=False) if lines is not None else None,
-            json.dumps(extra, ensure_ascii=False) if extra is not None else None,
-            source_code, code_status,
-            json.dumps(audit, ensure_ascii=False) if audit is not None else None,
-        ),
-    )
-    return cur.lastrowid
+    with conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            INSERT INTO beats (
+                storyboard_id, beat_no, start_sec, end_sec, layout, bg_color,
+                transition, summary, visual_blueprint, dot_index, lines_json,
+                extra_json, source_code, code_status, audit_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(storyboard_id, beat_no) DO UPDATE SET
+                start_sec = excluded.start_sec,
+                end_sec = excluded.end_sec,
+                layout = excluded.layout,
+                bg_color = excluded.bg_color,
+                transition = excluded.transition,
+                summary = excluded.summary,
+                visual_blueprint = excluded.visual_blueprint,
+                dot_index = excluded.dot_index,
+                lines_json = excluded.lines_json,
+                extra_json = excluded.extra_json,
+                source_code = excluded.source_code,
+                code_status = excluded.code_status,
+                audit_json = excluded.audit_json
+            """,
+            (
+                storyboard_id, beat_no, start_sec, end_sec, layout, bg_color,
+                transition, summary, visual_blueprint, dot_index,
+                json.dumps(lines, ensure_ascii=False) if lines is not None else None,
+                json.dumps(extra, ensure_ascii=False) if extra is not None else None,
+                source_code, code_status,
+                json.dumps(audit, ensure_ascii=False) if audit is not None else None,
+            ),
+        )
+        return cur.lastrowid
 
 
 def get_beat(conn: sqlite3.Connection, beat_id: int) -> Optional[dict]:
@@ -174,37 +176,39 @@ def update_beat_code(
     if not current:
         raise ValueError(f"Beat id {beat_id} not found.")
 
-    conn.execute(
-        """
-        UPDATE beats
-        SET source_code = ?, code_status = ?, audit_json = ?
-        WHERE id = ?
-        """,
-        (source_code, code_status, json.dumps(audit, ensure_ascii=False) if audit else None, beat_id),
-    )
+    with conn:
+        conn.execute(
+            """
+            UPDATE beats
+            SET source_code = ?, code_status = ?, audit_json = ?
+            WHERE id = ?
+            """,
+            (source_code, code_status, json.dumps(audit, ensure_ascii=False) if audit else None, beat_id),
+        )
 
-    # Record in beat_revisions
-    create_beat_revision(
-        conn,
-        beat_id=beat_id,
-        reason=reason,
-        note=note,
-        blueprint=current.get("visual_blueprint"),
-        source_code=source_code,
-    )
+        # Record in beat_revisions
+        create_beat_revision(
+            conn,
+            beat_id=beat_id,
+            reason=reason,
+            note=note,
+            blueprint=current.get("visual_blueprint"),
+            source_code=source_code,
+        )
 
 
 def insert_helper(conn: sqlite3.Connection, storyboard_id: int, name: str, seq: int, source: str) -> None:
-    conn.execute(
-        """
-        INSERT INTO storyboard_helpers (storyboard_id, name, seq, source)
-        VALUES (?, ?, ?, ?)
-        ON CONFLICT(storyboard_id, name) DO UPDATE SET
-            seq = excluded.seq,
-            source = excluded.source
-        """,
-        (storyboard_id, name, seq, source),
-    )
+    with conn:
+        conn.execute(
+            """
+            INSERT INTO storyboard_helpers (storyboard_id, name, seq, source)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(storyboard_id, name) DO UPDATE SET
+                seq = excluded.seq,
+                source = excluded.source
+            """,
+            (storyboard_id, name, seq, source),
+        )
 
 
 def list_helpers_for_storyboard(conn: sqlite3.Connection, storyboard_id: int) -> List[dict]:
@@ -221,18 +225,19 @@ def create_beat_revision(
     blueprint: Optional[str] = None,
     source_code: Optional[str] = None,
 ) -> int:
-    cur = conn.cursor()
-    cur.execute("SELECT COALESCE(MAX(revision), 0) + 1 FROM beat_revisions WHERE beat_id = ?", (beat_id,))
-    next_rev = cur.fetchone()[0]
+    with conn:
+        cur = conn.cursor()
+        cur.execute("SELECT COALESCE(MAX(revision), 0) + 1 FROM beat_revisions WHERE beat_id = ?", (beat_id,))
+        next_rev = cur.fetchone()[0]
 
-    cur.execute(
-        """
-        INSERT INTO beat_revisions (beat_id, revision, reason, note, blueprint, source_code, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
-        """,
-        (beat_id, next_rev, reason, note, blueprint, source_code),
-    )
-    return cur.lastrowid
+        cur.execute(
+            """
+            INSERT INTO beat_revisions (beat_id, revision, reason, note, blueprint, source_code, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+            """,
+            (beat_id, next_rev, reason, note, blueprint, source_code),
+        )
+        return cur.lastrowid
 
 
 def list_revisions_for_beat(conn: sqlite3.Connection, beat_id: int) -> List[dict]:

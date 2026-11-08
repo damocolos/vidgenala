@@ -18,15 +18,16 @@ def create_topic(
     if language not in ("Indonesian", "English"):
         raise ValueError("language must be 'Indonesian' or 'English'.")
 
-    cur = conn.cursor()
-    cur.execute(
-        """
-        INSERT INTO topics (title, language, max_duration, notes, created_at, updated_at)
-        VALUES (?, ?, ?, ?, datetime('now'), datetime('now'))
-        """,
-        (clean_title, language, max_duration, notes),
-    )
-    return cur.lastrowid
+    with conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            INSERT INTO topics (title, language, max_duration, notes, created_at, updated_at)
+            VALUES (?, ?, ?, ?, datetime('now'), datetime('now'))
+            """,
+            (clean_title, language, max_duration, notes),
+        )
+        return cur.lastrowid
 
 
 def get_topic(conn: sqlite3.Connection, topic_id: int) -> Optional[dict]:
@@ -69,34 +70,37 @@ def update_topic(
 
     new_notes = notes if notes is not None else current["notes"]
 
-    conn.execute(
-        """
-        UPDATE topics
-        SET title = ?, language = ?, max_duration = ?, notes = ?, updated_at = datetime('now')
-        WHERE id = ?
-        """,
-        (new_title, new_lang, new_max, new_notes, topic_id),
-    )
+    with conn:
+        conn.execute(
+            """
+            UPDATE topics
+            SET title = ?, language = ?, max_duration = ?, notes = ?, updated_at = datetime('now')
+            WHERE id = ?
+            """,
+            (new_title, new_lang, new_max, new_notes, topic_id),
+        )
     return get_topic(conn, topic_id)
 
 
 def archive_topic(conn: sqlite3.Connection, topic_id: int) -> bool:
-    cur = conn.cursor()
-    cur.execute(
-        """
-        UPDATE topics
-        SET archived_at = datetime('now'), updated_at = datetime('now')
-        WHERE id = ? AND archived_at IS NULL
-        """,
-        (topic_id,),
-    )
-    return cur.rowcount > 0
+    with conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            UPDATE topics
+            SET archived_at = datetime('now'), updated_at = datetime('now')
+            WHERE id = ? AND archived_at IS NULL
+            """,
+            (topic_id,),
+        )
+        return cur.rowcount > 0
 
 
 def delete_topic(conn: sqlite3.Connection, topic_id: int) -> bool:
-    cur = conn.cursor()
-    cur.execute("DELETE FROM topics WHERE id = ?", (topic_id,))
-    return cur.rowcount > 0
+    with conn:
+        cur = conn.cursor()
+        cur.execute("DELETE FROM topics WHERE id = ?", (topic_id,))
+        return cur.rowcount > 0
 
 
 def list_topics(conn: sqlite3.Connection, include_archived: bool = False) -> List[dict]:

@@ -25,10 +25,10 @@ def get_connection(db_path: Optional[Union[str, Path]] = None) -> sqlite3.Connec
     if not is_memory:
         p = Path(target)
         p.parent.mkdir(parents=True, exist_ok=True)
-        conn = sqlite3.connect(str(p), timeout=5.0)
+        conn = sqlite3.connect(str(p), timeout=5.0, check_same_thread=False)
         conn.execute("PRAGMA journal_mode = WAL;")
     else:
-        conn = sqlite3.connect(":memory:", timeout=5.0)
+        conn = sqlite3.connect(":memory:", timeout=5.0, check_same_thread=False)
 
     conn.execute("PRAGMA foreign_keys = ON;")
     conn.execute("PRAGMA busy_timeout = 5000;")

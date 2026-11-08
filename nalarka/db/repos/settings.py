@@ -43,17 +43,18 @@ def set_setting(conn: sqlite3.Connection, key: str, value: Any, value_type: Opti
     else:
         val_str = str(value)
 
-    conn.execute(
-        """
-        INSERT INTO app_settings (key, value, value_type, updated_at)
-        VALUES (?, ?, ?, datetime('now'))
-        ON CONFLICT(key) DO UPDATE SET
-            value = excluded.value,
-            value_type = excluded.value_type,
-            updated_at = excluded.updated_at
-        """,
-        (key, val_str, value_type),
-    )
+    with conn:
+        conn.execute(
+            """
+            INSERT INTO app_settings (key, value, value_type, updated_at)
+            VALUES (?, ?, ?, datetime('now'))
+            ON CONFLICT(key) DO UPDATE SET
+                value = excluded.value,
+                value_type = excluded.value_type,
+                updated_at = excluded.updated_at
+            """,
+            (key, val_str, value_type),
+        )
 
 
 def get_all_settings(conn: sqlite3.Connection) -> Dict[str, Any]:
@@ -135,18 +136,19 @@ def set_provider(
         row = cur.fetchone()
         enc_key = row["api_key_enc"] if row else None
 
-    if upd_active:
-        conn.execute("UPDATE ai_providers SET is_active = 0 WHERE is_active = 1 AND key != ?", (key,))
+    with conn:
+        if upd_active:
+            conn.execute("UPDATE ai_providers SET is_active = 0 WHERE is_active = 1 AND key != ?", (key,))
 
-    conn.execute(
-        """
-        UPDATE ai_providers
-        SET label = ?, base_url = ?, api_key_enc = ?, coder_model = ?, script_model = ?,
-            is_active = ?, updated_at = datetime('now')
-        WHERE key = ?
-        """,
-        (upd_label, upd_base_url, enc_key, upd_coder, upd_script, upd_active, key),
-    )
+        conn.execute(
+            """
+            UPDATE ai_providers
+            SET label = ?, base_url = ?, api_key_enc = ?, coder_model = ?, script_model = ?,
+                is_active = ?, updated_at = datetime('now')
+            WHERE key = ?
+            """,
+            (upd_label, upd_base_url, enc_key, upd_coder, upd_script, upd_active, key),
+        )
 
 
 def list_providers(conn: sqlite3.Connection) -> List[dict]:
@@ -178,17 +180,18 @@ def add_catalog_model(
     is_free: bool = False,
     source: str = "fetched",
 ) -> None:
-    conn.execute(
-        """
-        INSERT INTO model_catalog (provider_key, model_id, role, is_free, source, fetched_at)
-        VALUES (?, ?, ?, ?, ?, datetime('now'))
-        ON CONFLICT(provider_key, model_id, role) DO UPDATE SET
-            is_free = excluded.is_free,
-            source = excluded.source,
-            fetched_at = datetime('now')
-        """,
-        (provider_key, model_id, role, int(is_free), source),
-    )
+    with conn:
+        conn.execute(
+            """
+            INSERT INTO model_catalog (provider_key, model_id, role, is_free, source, fetched_at)
+            VALUES (?, ?, ?, ?, ?, datetime('now'))
+            ON CONFLICT(provider_key, model_id, role) DO UPDATE SET
+                is_free = excluded.is_free,
+                source = excluded.source,
+                fetched_at = datetime('now')
+            """,
+            (provider_key, model_id, role, int(is_free), source),
+        )
 
 
 def list_tts_voices(conn: sqlite3.Connection) -> List[dict]:
@@ -205,16 +208,17 @@ def add_tts_voice(
     label: str,
     source: str = "fetched",
 ) -> None:
-    conn.execute(
-        """
-        INSERT INTO tts_voices (voice_id, name, category, label, source, fetched_at)
-        VALUES (?, ?, ?, ?, ?, datetime('now'))
-        ON CONFLICT(voice_id) DO UPDATE SET
-            name = excluded.name,
-            category = excluded.category,
-            label = excluded.label,
-            source = excluded.source,
-            fetched_at = datetime('now')
-        """,
-        (voice_id, name, category, label, source),
-    )
+    with conn:
+        conn.execute(
+            """
+            INSERT INTO tts_voices (voice_id, name, category, label, source, fetched_at)
+            VALUES (?, ?, ?, ?, ?, datetime('now'))
+            ON CONFLICT(voice_id) DO UPDATE SET
+                name = excluded.name,
+                category = excluded.category,
+                label = excluded.label,
+                source = excluded.source,
+                fetched_at = datetime('now')
+            """,
+            (voice_id, name, category, label, source),
+        )

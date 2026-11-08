@@ -18,15 +18,16 @@ def create_job(
     safe_params.pop("api_key", None)
     safe_params.pop("el_api_key", None)
 
-    conn.execute(
-        """
-        INSERT INTO jobs (
-            id, kind, weight, topic_id, render_id, status, progress,
-            params_json, created_at
-        ) VALUES (?, ?, ?, ?, ?, 'queued', 0, ?, datetime('now'))
-        """,
-        (job_id, kind, weight, topic_id, render_id, json.dumps(safe_params, ensure_ascii=False)),
-    )
+    with conn:
+        conn.execute(
+            """
+            INSERT INTO jobs (
+                id, kind, weight, topic_id, render_id, status, progress,
+                params_json, created_at
+            ) VALUES (?, ?, ?, ?, ?, 'queued', 0, ?, datetime('now'))
+            """,
+            (job_id, kind, weight, topic_id, render_id, json.dumps(safe_params, ensure_ascii=False)),
+        )
     return job_id
 
 
@@ -69,15 +70,16 @@ def update_job_status(
         json.dumps(current["result"], ensure_ascii=False) if current["result"] is not None else None
     )
 
-    conn.execute(
-        """
-        UPDATE jobs
-        SET status = ?, progress = ?, status_text = ?, result_json = ?,
-            error = ?, pid = ?, started_at = ?, finished_at = ?
-        WHERE id = ?
-        """,
-        (status, upd_prog, upd_text, res_str, upd_err, upd_pid, upd_started, upd_finished, job_id),
-    )
+    with conn:
+        conn.execute(
+            """
+            UPDATE jobs
+            SET status = ?, progress = ?, status_text = ?, result_json = ?,
+                error = ?, pid = ?, started_at = ?, finished_at = ?
+            WHERE id = ?
+            """,
+            (status, upd_prog, upd_text, res_str, upd_err, upd_pid, upd_started, upd_finished, job_id),
+        )
 
 
 def list_active_jobs(conn: sqlite3.Connection) -> List[dict]:
@@ -120,15 +122,16 @@ def append_job_event(
     message: Optional[str] = None,
     pct: Optional[int] = None,
 ) -> int:
-    cur = conn.cursor()
-    cur.execute(
-        """
-        INSERT INTO job_events (job_id, kind, message, pct)
-        VALUES (?, ?, ?, ?)
-        """,
-        (job_id, kind, message, pct),
-    )
-    return cur.lastrowid
+    with conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            INSERT INTO job_events (job_id, kind, message, pct)
+            VALUES (?, ?, ?, ?)
+            """,
+            (job_id, kind, message, pct),
+        )
+        return cur.lastrowid
 
 
 def batch_append_job_events(
@@ -138,15 +141,16 @@ def batch_append_job_events(
     """Inserts multiple events in a single batch for high-throughput logging."""
     if not events:
         return 0
-    cur = conn.cursor()
-    cur.executemany(
-        """
-        INSERT INTO job_events (job_id, kind, message, pct)
-        VALUES (?, ?, ?, ?)
-        """,
-        events,
-    )
-    return cur.rowcount
+    with conn:
+        cur = conn.cursor()
+        cur.executemany(
+            """
+            INSERT INTO job_events (job_id, kind, message, pct)
+            VALUES (?, ?, ?, ?)
+            """,
+            events,
+        )
+        return cur.rowcount
 
 
 def get_job_events(
