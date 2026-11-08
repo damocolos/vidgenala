@@ -11,7 +11,11 @@ config*.json
 *.key
 *.pem
 *credentials*
-*secret*
+*.secret*
+*secret*.key
+*secret*.json
+!tests/*
+!nalarka/*
 
 # Media and asset files (videos, audio, images)
 *.mp4
@@ -39,6 +43,12 @@ ref_frames/
 # Asset directories (preserve directory structure only)
 references_library/*
 !references_library/.gitkeep
+data/*
+data/.*
+!data/.gitkeep
+*.db
+*.db-wal
+*.db-shm
 
 # Logs and runtime debug outputs
 *.log

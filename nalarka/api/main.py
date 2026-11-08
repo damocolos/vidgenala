@@ -9,11 +9,14 @@ from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from starlette.staticfiles import StaticFiles
+
 from .deps import get_dispatcher, set_dispatcher
 from .routers import (
     config_router, topics_router, voiceovers_router,
     library_router, renders_router, jobs_router,
 )
+from ..web.routes import web_router
 from ..db.connection import get_connection, run_migrations
 from ..db.seed import seed_defaults
 from ..jobs.dispatcher import JobDispatcher
@@ -90,6 +93,11 @@ def create_app() -> FastAPI:
     app.include_router(library_router, prefix="/api")
     app.include_router(renders_router, prefix="/api")
     app.include_router(jobs_router, prefix="/api")
+
+    # Static files and Web UI
+    static_dir = Path(__file__).resolve().parent.parent / "web" / "static"
+    app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
+    app.include_router(web_router)
 
     return app
 

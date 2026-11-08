@@ -1,0 +1,17 @@
+version: '3.8'
+
+services:
+  nalarka-studio:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: nalarka-studio
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - ./data:/app/data
+      - ./references_library:/app/references_library
+    environment:
+      - NALARKA_DB_PATH=/app/data/nalarka.db
+      - NALARKA_KEY_FILE=/app/data/secret.key

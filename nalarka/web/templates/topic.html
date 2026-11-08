@@ -1,0 +1,690 @@
+{% extends "base.html" %}
+
+{% block title %}{{ topic.title }} - Nalarka Studio{% endblock %}
+
+{% block content %}
+<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+  <div>
+    <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.25rem;">
+      <a href="/topics" style="color: var(--text-muted); text-decoration: none;">&larr; Topics</a>
+      <span style="color: var(--text-dim);">/</span>
+      <span class="badge">Topic #{{ topic.id }}</span>
+      <span class="badge badge-blue">{{ topic.language }}</span>
+    </div>
+    <h1 style="font-size: 1.35rem; font-weight: 700;">{{ topic.title }}</h1>
+  </div>
+  <div style="display: flex; gap: 0.5rem;">
+    <button class="btn btn-secondary btn-sm" onclick="saveTopicDetails()">Save Topic</button>
+  </div>
+</div>
+
+<div class="grid-2">
+  <!-- Left Column: Config, Topic, Script -->
+  <div>
+    <!-- SECTION 1: AI Provider Config (F-01..F-08) -->
+    <div class="card" id="provider-card">
+      <div class="card-header">
+        <div class="card-title">1. AI Engine & Models</div>
+        <span id="active-provider-badge" class="badge badge-green">{{ active_provider.key|upper }}</span>
+      </div>
+      <div class="form-group">
+        <label for="provider-select">AI Provider</label>
+        <select id="provider-select" onchange="switchProvider(this.value)">
+          {% for p in providers %}
+          <option value="{{ p.key }}" {% if p.is_active %}selected{% endif %}>{{ p.label }}</option>
+          {% endfor %}
+        </select>
+        <small id="provider-hint" style="display: block; margin-top: 0.35rem; color: var(--text-dim); font-size: 0.8rem;">
+          {{ active_provider.hint|default('OpenAI compatible endpoint') }}
+        </small>
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label for="provider-base-url">Base URL</label>
+          <input type="text" id="provider-base-url" value="{{ active_provider.base_url }}">
+        </div>
+        <div class="form-group">
+          <label for="provider-api-key">API Key</label>
+          <input type="password" id="provider-api-key" placeholder="{% if active_provider.has_key %}••••••••{% else %}Enter API key{% endif %}">
+        </div>
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label for="provider-coder-model">Coder Model (Stage 5)</label>
+          <input type="text" id="provider-coder-model" list="coder-models-list" value="{{ active_provider.coder_model }}">
+          <datalist id="coder-models-list">
+            {% for m in models %}
+            <option value="{{ m.model_id }}">{{ m.name }}</option>
+            {% endfor %}
+          </datalist>
+        </div>
+        <div class="form-group">
+          <label for="provider-script-model">Script Model (Stage 1)</label>
+          <input type="text" id="provider-script-model" list="script-models-list" value="{{ active_provider.script_model }}">
+          <datalist id="script-models-list">
+            {% for m in models %}
+            <option value="{{ m.model_id }}">{{ m.name }}</option>
+            {% endfor %}
+          </datalist>
+        </div>
+      </div>
+
+      <div style="display: flex; gap: 0.5rem; justify-content: flex-end; margin-top: 0.5rem;">
+        <button class="btn btn-secondary btn-sm" onclick="saveProviderConfig()">Save Config</button>
+        <button class="btn btn-secondary btn-sm" onclick="testAIConnection()">Test Vector Model</button>
+        <button id="btn-fetch-or" class="btn btn-secondary btn-sm" onclick="fetchORModels()">Fetch Models</button>
+      </div>
+    </div>
+
+    <!-- SECTION 2: Topic & Script (F-10..F-18) -->
+    <div class="card" id="script-card">
+      <div class="card-header">
+        <div class="card-title">2. Topic & Structured Script</div>
+        <div style="display: flex; gap: 0.5rem;">
+          <button class="btn btn-secondary btn-sm" onclick="copyCleanText({{ current_script.id if current_script else 'null' }})">Copy Clean Text</button>
+          <button id="btn-gen-script" class="btn btn-primary btn-sm" onclick="triggerGenerateScript()">Generate Script (AI)</button>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label for="topic-title-input">Topic Title</label>
+        <input type="text" id="topic-title-input" value="{{ topic.title }}">
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label for="topic-lang-select">Language</label>
+          <select id="topic-lang-select">
+            <option value="Indonesian" {% if topic.language == 'Indonesian' %}selected{% endif %}>Indonesian</option>
+            <option value="English" {% if topic.language == 'English' %}selected{% endif %}>English</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="max-duration-input">Target Max Duration (seconds)</label>
+          <input type="number" id="max-duration-input" value="{{ topic.max_duration }}" min="15" max="900" step="5" onchange="updateDurationHint(); updateScriptEstimates();">
+        </div>
+      </div>
+
+      <div style="background-color: var(--bg-subpanel); padding: 0.5rem 0.75rem; border-radius: var(--radius-sm); margin-bottom: 1rem; border: 1px solid var(--border-color);">
+        <small id="duration-hint-text" style="color: var(--text-muted); font-size: 0.82rem;">
+          Budget: {{ duration_hint.word_budget_lo }}–{{ duration_hint.word_budget_hi }} words | {{ duration_hint.recommended_sections }} sections | ~{{ duration_hint.beats_lo }}–{{ duration_hint.beats_hi }} beats ({{ duration_hint.mode_label }})
+        </small>
+      </div>
+
+      <div class="form-group">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.35rem;">
+          <label for="script-editor" style="margin-bottom: 0;">Script Editor ([Hook], [Inti 1..N], [Penutup])</label>
+          <div style="display: flex; gap: 0.5rem; font-size: 0.8rem; color: var(--text-muted); align-items: center;">
+            <span id="script-word-count">{{ script_stats.word_count }} words</span> &bull;
+            <span id="script-est-vo">~{{ script_stats.est_voice_seconds }}s voice</span> &bull;
+            <span id="script-est-vid">~{{ script_stats.est_video_seconds }}s video</span> &bull;
+            <span id="script-budget-range">Budget: {{ script_stats.word_budget_lo }}-{{ script_stats.word_budget_hi }} w</span>
+            <span id="script-over-cap" class="badge badge-orange" style="display: {% if script_stats.over_cap %}inline-block{% else %}none{% endif %};">OVER CAP</span>
+          </div>
+        </div>
+        <textarea id="script-editor" oninput="updateScriptEstimates()">{{ current_script.raw_text if current_script else default_sample_script }}</textarea>
+      </div>
+
+      <div style="display: flex; justify-content: flex-end; gap: 0.5rem;">
+        <button class="btn btn-secondary btn-sm" onclick="saveManualScript()">Save Script Draft</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Right Column: Voiceover, Render, Beat Inspector, Console -->
+  <div>
+    <!-- SECTION 3: Voiceover & Audio (F-20..F-41) -->
+    <div class="card" id="audio-card">
+      <div class="card-header">
+        <div class="card-title">3. Voiceover & Audio Configuration</div>
+        <span id="vo-status-badge" class="badge {% if current_voiceover %}badge-green{% else %}badge-orange{% endif %}">
+          {% if current_voiceover %}VO Ready ({{ "%.1f"|format(current_voiceover.duration_sec) }}s){% else %}No VO{% endif %}
+        </span>
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label for="tts-provider-select">TTS Provider</label>
+          <select id="tts-provider-select" onchange="toggleTTSFields(this.value)">
+            <option value="ElevenLabs API v1" {% if tts_settings.provider == 'ElevenLabs API v1' %}selected{% endif %}>ElevenLabs API v1</option>
+            <option value="Edge-TTS (gratis)" {% if tts_settings.provider == 'Edge-TTS (gratis)' %}selected{% endif %}>Edge-TTS (gratis)</option>
+          </select>
+        </div>
+        <div class="form-group" id="tts-voice-group">
+          <label for="tts-voice-select">Voice</label>
+          <input type="text" id="tts-voice-select" list="tts-voices-list" value="{{ tts_settings.voice }}">
+          <datalist id="tts-voices-list">
+            {% for v in tts_voices %}
+            <option value="{{ v.voice_name }}">{{ v.voice_name }}</option>
+            {% endfor %}
+          </datalist>
+        </div>
+      </div>
+
+      <div id="elevenlabs-options" style="display: {% if tts_settings.provider == 'ElevenLabs API v1' %}block{% else %}none{% endif %};">
+        <div class="form-row">
+          <div class="form-group">
+            <label for="tts-model-select">ElevenLabs Model</label>
+            <select id="tts-model-select">
+              <option value="eleven_multilingual_v2" {% if tts_settings.model_id == 'eleven_multilingual_v2' %}selected{% endif %}>eleven_multilingual_v2</option>
+              <option value="eleven_flash_v2_5" {% if tts_settings.model_id == 'eleven_flash_v2_5' %}selected{% endif %}>eleven_flash_v2_5</option>
+              <option value="eleven_turbo_v2_5" {% if tts_settings.model_id == 'eleven_turbo_v2_5' %}selected{% endif %}>eleven_turbo_v2_5</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="tts-stability">Stability: <span id="val-stability">{{ tts_settings.stability }}</span></label>
+            <input type="range" id="tts-stability" min="0" max="1" step="0.05" value="{{ tts_settings.stability }}" oninput="document.getElementById('val-stability').innerText=this.value">
+          </div>
+          <div class="form-group">
+            <label for="tts-similarity">Similarity: <span id="val-similarity">{{ tts_settings.similarity }}</span></label>
+            <input type="range" id="tts-similarity" min="0" max="1" step="0.05" value="{{ tts_settings.similarity }}" oninput="document.getElementById('val-similarity').innerText=this.value">
+          </div>
+          <div class="form-group">
+            <label for="tts-style">Style: <span id="val-style">{{ tts_settings.style }}</span></label>
+            <input type="range" id="tts-style" min="0" max="1" step="0.05" value="{{ tts_settings.style }}" oninput="document.getElementById('val-style').innerText=this.value">
+          </div>
+        </div>
+
+        <div style="display: flex; gap: 1.5rem; margin-bottom: 1rem;">
+          <label class="form-check">
+            <input type="checkbox" id="tts-speaker-boost" {% if tts_settings.speaker_boost %}checked{% endif %}>
+            <span>Speaker Boost</span>
+          </label>
+          <label class="form-check">
+            <input type="checkbox" id="tts-ssml-breaks" {% if tts_settings.ssml_breaks %}checked{% endif %}>
+            <span>Add &lt;break time="0.4s"/&gt;</span>
+          </label>
+        </div>
+      </div>
+
+      <div style="display: flex; gap: 0.5rem; align-items: center; justify-content: space-between; margin-bottom: 1rem;">
+        <button id="btn-fetch-el" class="btn btn-secondary btn-sm" onclick="fetchELVoices()">Fetch My Voices</button>
+        <div style="display: flex; gap: 0.5rem;">
+          <label class="btn btn-secondary btn-sm" style="margin-bottom: 0;">
+            Upload Audio
+            <input type="file" id="vo-upload-input" accept=".mp3,.wav,.m4a,.ogg" style="display: none;" onchange="handleVOUpload(event)">
+          </label>
+          <button id="btn-gen-tts" class="btn btn-primary btn-sm" onclick="triggerGenerateTTS()">Generate Audio Now</button>
+        </div>
+      </div>
+
+      <!-- Audio Player -->
+      <div id="vo-player-container" style="display: {% if current_voiceover %}block{% else %}none{% endif %}; background: var(--bg-subpanel); padding: 0.75rem; border-radius: var(--radius-sm); border: 1px solid var(--border-color); margin-bottom: 1rem;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+          <span style="font-size: 0.85rem; font-weight: 600;">Voiceover Preview</span>
+          <span id="vo-dur-label" style="font-size: 0.8rem; color: var(--text-muted);">
+            {% if current_voiceover %}{{ "%.1f"|format(current_voiceover.duration_sec) }}s (Target Video: {{ current_voiceover.total_dur_locked }}s){% endif %}
+          </span>
+        </div>
+        <audio id="vo-audio-player" controls style="width: 100%;">
+          {% if current_voiceover %}
+          <source src="/api/voiceovers/{{ current_voiceover.id }}/audio" type="audio/mpeg">
+          {% endif %}
+        </audio>
+      </div>
+
+      <!-- Render Parameters -->
+      <div class="form-row">
+        <div class="form-group">
+          <label for="reference-select">Reference Video / Style</label>
+          <select id="reference-select">
+            <option value="">None (Default Nalarka Flat-Vector Palette)</option>
+            {% for r in ref_items %}
+            <option value="{{ r.file_path }}" {% if selected_ref == r.file_path %}selected{% endif %}>{{ r.filename }} ({{ r.width }}x{{ r.height }})</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="orientation-select">Orientation</label>
+          <select id="orientation-select">
+            <option value="Match Reference">Match Reference</option>
+            <option value="1080x1920" selected>1080x1920 (Vertical 9:16 Shorts/Reels)</option>
+            <option value="1920x1080">1920x1080 (Horizontal 16:9)</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label for="whisper-size-select">Whisper Model Size</label>
+          <select id="whisper-size-select">
+            <option value="tiny">tiny (Fastest)</option>
+            <option value="base" selected>base (Balanced)</option>
+            <option value="small">small (High accuracy)</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="render-workers">Render Workers (CPU cores)</label>
+          <input type="number" id="render-workers" value="{{ default_workers|default(4) }}" min="1" max="16">
+        </div>
+      </div>
+
+      <div class="form-row" style="align-items: center; margin-bottom: 0.5rem;">
+        <div class="form-group" style="flex: 2;">
+          <label for="output-name">Output Video Filename</label>
+          <input type="text" id="output-name" value="video_topic_{{ topic.id }}.mp4">
+        </div>
+        <div class="form-group" style="flex: 1; padding-top: 1.25rem;">
+          <label class="form-check">
+            <input type="checkbox" id="synth-bgm-check" checked>
+            <span>Auto-Synth BGM</span>
+          </label>
+        </div>
+      </div>
+    </div>
+
+    <!-- SECTION 4: Render & Beat Inspector (F-42..F-46) -->
+    <div class="card" id="render-card">
+      <div class="card-header">
+        <div class="card-title">4. Render Engine & Beat Inspector</div>
+        <div style="display: flex; gap: 0.5rem;">
+          <button id="btn-verify-video" class="btn btn-secondary btn-sm" onclick="triggerVerifyOnly()" {% if not latest_render %}disabled{% endif %}>Verify MP4</button>
+          <button id="btn-render-video" class="btn btn-primary btn-sm" onclick="triggerFullRender()">Generate & Render MP4</button>
+        </div>
+      </div>
+
+      <!-- Beat Inspector -->
+      <div style="margin-bottom: 1rem;">
+        <label for="beat-select">Beat Inspector (Scene Elements)</label>
+        <select id="beat-select" onchange="onBeatSelected(this.value)">
+          {% if beats %}
+            {% for b in beats %}
+            <option value="{{ b.id }}">Beat #{{ "%02d"|format(b.beat_no) }} [{{ "%.1f"|format(b.start_sec) }}s - {{ "%.1f"|format(b.end_sec) }}s] ({{ b.bg_color }}): {{ b.summary|default(b.visual_blueprint[:50]) }}</option>
+            {% endfor %}
+          {% else %}
+            <option value="">No beats available yet. Run render pipeline first.</option>
+          {% endif %}
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label for="beat-reroll-note">Custom Note for Beat Regenerator (Optional)</label>
+        <textarea id="beat-reroll-note" style="min-height: 70px;" placeholder="e.g. buat gelombang suara lebih tebal dan berwarna cyan cerah..."></textarea>
+      </div>
+
+      <div style="display: flex; justify-content: flex-end; gap: 0.5rem;">
+        <button id="btn-preview-beat" class="btn btn-secondary btn-sm" onclick="triggerPreviewBeat()" {% if not beats %}disabled{% endif %}>Preview Selected Beat (PNG)</button>
+        <button id="btn-reroll-beat" class="btn btn-secondary btn-sm" onclick="triggerRerollBeat()" {% if not beats %}disabled{% endif %}>Regenerate Selected Beat</button>
+      </div>
+    </div>
+
+    <!-- SECTION 5: Progress & Live Console (F-50..F-54) -->
+    <div class="card" id="console-card">
+      <div class="card-header">
+        <div class="card-title">
+          <span>Engine Progress</span>
+          <span id="job-status" class="badge">Idle</span>
+        </div>
+        <button class="btn btn-secondary btn-sm" onclick="document.getElementById('live-console').textContent=''">Clear Log</button>
+      </div>
+      <div style="margin-bottom: 0.75rem;">
+        <progress id="job-progress" value="0" max="100"></progress>
+      </div>
+      <pre id="live-console" class="console-box">[System] Nalarka Studio Ready.
+Topic #{{ topic.id }}: {{ topic.title }}
+Select an action above to begin.</pre>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+const TOPIC_ID = {{ topic.id }};
+let CURRENT_VOICEOVER_ID = {{ current_voiceover.id if current_voiceover else 'null' }};
+let LATEST_RENDER_ID = {{ latest_render.id if latest_render else 'null' }};
+
+function toggleTTSFields(provider) {
+  const el = document.getElementById('elevenlabs-options');
+  if (el) el.style.display = provider.includes('ElevenLabs') ? 'block' : 'none';
+}
+
+function switchProvider(key) {
+  // Stash & restore fields or reload config
+  fetch(`/api/providers`)
+    .then(r => r.json())
+    .then(providers => {
+      const p = providers.find(x => x.key === key);
+      if (p) {
+        document.getElementById('provider-base-url').value = p.base_url || '';
+        document.getElementById('provider-coder-model').value = p.coder_model || '';
+        document.getElementById('provider-script-model').value = p.script_model || '';
+        document.getElementById('provider-api-key').placeholder = p.has_key ? '••••••••' : 'Enter API key';
+        document.getElementById('active-provider-badge').textContent = p.key.toUpperCase();
+      }
+    });
+}
+
+async function saveProviderConfig() {
+  const key = document.getElementById('provider-select').value;
+  const base_url = document.getElementById('provider-base-url').value.trim();
+  const api_key = document.getElementById('provider-api-key').value.trim();
+  const coder_model = document.getElementById('provider-coder-model').value.trim();
+  const script_model = document.getElementById('provider-script-model').value.trim();
+
+  try {
+    const res = await fetch(`/api/providers/${key}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ base_url, api_key: api_key || null, coder_model, script_model, is_active: true })
+    });
+    if (!res.ok) throw new Error("Failed to save provider config");
+    showToast("Provider configuration saved!", "success");
+  } catch (err) {
+    showToast(err.message, "error");
+  }
+}
+
+async function testAIConnection() {
+  const key = document.getElementById('provider-select').value;
+  try {
+    const res = await fetch(`/api/providers/${key}/test`, { method: 'POST' });
+    if (!res.ok) throw new Error("Failed to start connection test");
+    const data = await res.json();
+    connectJobEvents(data.job_id);
+  } catch (err) {
+    showToast(err.message, "error");
+  }
+}
+
+async function fetchORModels() {
+  try {
+    const res = await fetch(`/api/providers/openrouter/fetch-models`, { method: 'POST' });
+    if (!res.ok) throw new Error("Failed to start OpenRouter models fetch");
+    const data = await res.json();
+    connectJobEvents(data.job_id, {
+      onDone: () => {
+        showToast("OpenRouter models fetched! Refreshing...", "success");
+        setTimeout(() => window.location.reload(), 1000);
+      }
+    });
+  } catch (err) {
+    showToast(err.message, "error");
+  }
+}
+
+async function fetchELVoices() {
+  try {
+    const res = await fetch(`/api/tts/voices/fetch`, { method: 'POST' });
+    if (!res.ok) throw new Error("Failed to start ElevenLabs voices fetch");
+    const data = await res.json();
+    connectJobEvents(data.job_id, {
+      onDone: () => {
+        showToast("Voices catalog updated!", "success");
+        setTimeout(() => window.location.reload(), 1000);
+      }
+    });
+  } catch (err) {
+    showToast(err.message, "error");
+  }
+}
+
+async function saveTopicDetails() {
+  const title = document.getElementById('topic-title-input').value.trim();
+  const language = document.getElementById('topic-lang-select').value;
+  const max_duration = parseInt(document.getElementById('max-duration-input').value, 10) || 60;
+
+  try {
+    const res = await fetch(`/api/topics/${TOPIC_ID}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title, language, max_duration })
+    });
+    if (!res.ok) throw new Error("Failed to update topic");
+    showToast("Topic saved", "success");
+  } catch (err) {
+    showToast(err.message, "error");
+  }
+}
+
+async function saveManualScript() {
+  const text = document.getElementById('script-editor').value;
+  const max_dur = parseInt(document.getElementById('max-duration-input').value, 10) || 60;
+  try {
+    const res = await fetch(`/api/topics/${TOPIC_ID}/scripts`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ raw_text: text, max_duration: max_dur })
+    });
+    if (!res.ok) throw new Error("Failed to save script");
+    showToast("Script draft saved!", "success");
+  } catch (err) {
+    showToast(err.message, "error");
+  }
+}
+
+async function triggerGenerateScript() {
+  const btn = document.getElementById('btn-gen-script');
+  btn.disabled = true;
+
+  try {
+    const res = await fetch(`/api/topics/${TOPIC_ID}/scripts/generate`, { method: 'POST' });
+    if (!res.ok) throw new Error("Failed to trigger script generation");
+    const data = await res.json();
+    connectJobEvents(data.job_id, {
+      onDone: () => {
+        btn.disabled = false;
+        showToast("Script generated! Updating editor...", "success");
+        fetch(`/api/topics/${TOPIC_ID}/scripts`)
+          .then(r => r.json())
+          .then(scripts => {
+            if (scripts && scripts.length > 0) {
+              const latest = scripts[0];
+              document.getElementById('script-editor').value = latest.raw_text;
+              updateScriptEstimates();
+            }
+          });
+      },
+      onError: () => { btn.disabled = false; }
+    });
+  } catch (err) {
+    btn.disabled = false;
+    showToast(err.message, "error");
+  }
+}
+
+async function triggerGenerateTTS() {
+  const btn = document.getElementById('btn-gen-tts');
+  btn.disabled = true;
+
+  const scriptText = document.getElementById('script-editor').value;
+  const provider = document.getElementById('tts-provider-select').value;
+  const voice = document.getElementById('tts-voice-select').value;
+  const language = document.getElementById('topic-lang-select').value;
+  const max_duration = parseInt(document.getElementById('max-duration-input').value, 10) || 60;
+
+  // Also save TTS settings if ElevenLabs
+  if (provider.includes('ElevenLabs')) {
+    const model_id = document.getElementById('tts-model-select').value;
+    const stability = parseFloat(document.getElementById('tts-stability').value);
+    const similarity = parseFloat(document.getElementById('tts-similarity').value);
+    const style = parseFloat(document.getElementById('tts-style').value);
+    const speaker_boost = document.getElementById('tts-speaker-boost').checked;
+    const ssml_breaks = document.getElementById('tts-ssml-breaks').checked;
+
+    fetch('/api/tts/settings', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ provider, voice, model_id, stability, similarity, style, speaker_boost, ssml_breaks })
+    }).catch(console.error);
+  }
+
+  try {
+    const res = await fetch(`/api/topics/${TOPIC_ID}/voiceovers/generate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ script_text: scriptText, provider, voice, language, max_duration })
+    });
+    if (!res.ok) throw new Error("Failed to trigger voiceover generation");
+    const data = await res.json();
+
+    connectJobEvents(data.job_id, {
+      onDone: (result) => {
+        btn.disabled = false;
+        showToast("Voiceover generated successfully!", "success");
+        setTimeout(() => window.location.reload(), 1200);
+      },
+      onError: () => { btn.disabled = false; }
+    });
+  } catch (err) {
+    btn.disabled = false;
+    showToast(err.message, "error");
+  }
+}
+
+async function handleVOUpload(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+
+  const formData = new FormData();
+  formData.append('file', file);
+
+  try {
+    const res = await fetch(`/api/topics/${TOPIC_ID}/voiceovers/upload`, {
+      method: 'POST',
+      body: formData
+    });
+    if (!res.ok) throw new Error((await res.json()).detail || "Failed to upload audio");
+    const data = await res.json();
+    CURRENT_VOICEOVER_ID = data.voiceover_id;
+    showToast(`Voiceover uploaded (${data.duration.toFixed(1)}s)`, "success");
+    setTimeout(() => window.location.reload(), 1000);
+  } catch (err) {
+    showToast(err.message, "error");
+  }
+}
+
+async function triggerFullRender() {
+  const btn = document.getElementById('btn-render-video');
+  btn.disabled = true;
+
+  const refPath = document.getElementById('reference-select').value || null;
+  const orientation = document.getElementById('orientation-select').value;
+  const whisper_size = document.getElementById('whisper-size-select').value;
+  const synth_bgm = document.getElementById('synth-bgm-check').checked;
+  const workers = parseInt(document.getElementById('render-workers').value, 10) || 4;
+  const output_name = document.getElementById('output-name').value.trim() || `video_topic_${TOPIC_ID}.mp4`;
+
+  try {
+    const res = await fetch(`/api/topics/${TOPIC_ID}/renders`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        voiceover_id: CURRENT_VOICEOVER_ID,
+        ref_path: refPath,
+        orientation: orientation,
+        whisper_size: whisper_size,
+        synth_bgm: synth_bgm,
+        workers: workers,
+        output_name: output_name
+      })
+    });
+    if (!res.ok) throw new Error((await res.json()).detail || "Failed to start render");
+    const data = await res.json();
+
+    connectJobEvents(data.job_id, {
+      onDone: (result) => {
+        btn.disabled = false;
+        showToast("Video render completed successfully!", "success");
+        setTimeout(() => window.location.reload(), 1500);
+      },
+      onError: () => { btn.disabled = false; }
+    });
+  } catch (err) {
+    btn.disabled = false;
+    showToast(err.message, "error");
+  }
+}
+
+async function triggerVerifyOnly() {
+  if (!LATEST_RENDER_ID) {
+    showToast("No rendered video to verify", "error");
+    return;
+  }
+  const btn = document.getElementById('btn-verify-video');
+  btn.disabled = true;
+
+  try {
+    const res = await fetch(`/api/renders/${LATEST_RENDER_ID}/verify`, { method: 'POST' });
+    if (!res.ok) throw new Error("Failed to trigger verification");
+    const data = await res.json();
+    connectJobEvents(data.job_id, {
+      onDone: () => {
+        btn.disabled = false;
+        showVerificationModal(LATEST_RENDER_ID);
+      },
+      onError: () => { btn.disabled = false; }
+    });
+  } catch (err) {
+    btn.disabled = false;
+    showToast(err.message, "error");
+  }
+}
+
+function onBeatSelected(val) {
+  // Can trigger preview or populate notes
+}
+
+async function triggerPreviewBeat() {
+  const beatId = document.getElementById('beat-select').value;
+  if (!beatId) return;
+
+  const btn = document.getElementById('btn-preview-beat');
+  btn.disabled = true;
+
+  try {
+    const res = await fetch(`/api/beats/${beatId}/preview`, { method: 'POST' });
+    if (!res.ok) throw new Error("Failed to start beat preview");
+    const data = await res.json();
+    connectJobEvents(data.job_id, {
+      onDone: (result) => {
+        btn.disabled = false;
+        if (result && (result.preview_path || result.sheet_path)) {
+          const p = result.preview_path || result.sheet_path;
+          showImagePreview(`/api/renders/preview-image?path=${encodeURIComponent(p)}`, `Beat #${beatId} Preview`);
+        } else {
+          showToast("Preview generated successfully", "success");
+        }
+      },
+      onError: () => { btn.disabled = false; }
+    });
+  } catch (err) {
+    btn.disabled = false;
+    showToast(err.message, "error");
+  }
+}
+
+async function triggerRerollBeat() {
+  const beatId = document.getElementById('beat-select').value;
+  if (!beatId) return;
+
+  const note = document.getElementById('beat-reroll-note').value.trim();
+  const btn = document.getElementById('btn-reroll-beat');
+  btn.disabled = true;
+
+  try {
+    const res = await fetch(`/api/beats/${beatId}/reroll`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ custom_note: note })
+    });
+    if (!res.ok) throw new Error("Failed to trigger beat reroll");
+    const data = await res.json();
+    connectJobEvents(data.job_id, {
+      onDone: (result) => {
+        btn.disabled = false;
+        showToast("Beat regenerated and video re-rendered!", "success");
+        setTimeout(() => window.location.reload(), 1500);
+      },
+      onError: () => { btn.disabled = false; }
+    });
+  } catch (err) {
+    btn.disabled = false;
+    showToast(err.message, "error");
+  }
+}
+</script>
+{% endblock %}

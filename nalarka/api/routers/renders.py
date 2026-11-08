@@ -67,6 +67,16 @@ def get_renders_list(
     return list_all_renders(conn, limit=limit)
 
 
+@router.get("/renders/preview-image")
+def get_preview_image(path: str = Query(...)):
+    p = Path(path).resolve()
+    # Check that file exists and is png/jpg/jpeg/webp
+    if not p.exists() or p.suffix.lower() not in (".png", ".jpg", ".jpeg", ".webp"):
+        raise HTTPException(status_code=404, detail="Preview image not found.")
+    media_type = "image/png" if p.suffix.lower() == ".png" else "image/jpeg"
+    return FileResponse(p, media_type=media_type)
+
+
 @router.get("/renders/{render_id}", response_model=RenderResponse)
 def get_render_by_id(render_id: int, conn: sqlite3.Connection = Depends(get_db_conn)):
     r = get_render(conn, render_id)
@@ -202,3 +212,4 @@ def preview_beat_endpoint(
 @router.get("/beats/{beat_id}/revisions")
 def get_beat_revisions_list(beat_id: int, conn: sqlite3.Connection = Depends(get_db_conn)):
     return list_revisions_for_beat(conn, beat_id)
+

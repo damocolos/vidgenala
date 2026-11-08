@@ -1,0 +1,196 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard & Topics - Nalarka Studio{% endblock %}
+
+{% block content %}
+<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+  <div>
+    <h1 style="font-size: 1.5rem; font-weight: 700;">Studio Dashboard</h1>
+    <p style="color: var(--text-muted); font-size: 0.9rem;">Manage topics, script generation, and video renders</p>
+  </div>
+  <button class="btn btn-primary" onclick="openModal('new-topic-modal')">+ Create New Topic</button>
+</div>
+
+<!-- Quick Stats -->
+<div class="grid-3" style="margin-bottom: 1.5rem;">
+  <div class="card" style="margin-bottom: 0;">
+    <div style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.25rem;">Total Topics</div>
+    <div style="font-size: 1.8rem; font-weight: 700; color: var(--text-main);">{{ topics|length }}</div>
+  </div>
+  <div class="card" style="margin-bottom: 0;">
+    <div style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.25rem;">Library Items</div>
+    <div style="font-size: 1.8rem; font-weight: 700; color: var(--accent-blue);">{{ library_count|default(0) }}</div>
+  </div>
+  <div class="card" style="margin-bottom: 0;">
+    <div style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.25rem;">Total Renders</div>
+    <div style="font-size: 1.8rem; font-weight: 700; color: var(--accent-green);">{{ recent_renders|length }}</div>
+  </div>
+</div>
+
+<!-- Topics List -->
+<div class="card">
+  <div class="card-header">
+    <div class="card-title">Topics & Projects</div>
+  </div>
+  <div class="table-container">
+    {% if topics %}
+    <table>
+      <thead>
+        <tr>
+          <th style="width: 60px;">ID</th>
+          <th>Topic Title</th>
+          <th style="width: 120px;">Language</th>
+          <th style="width: 120px;">Target Dur</th>
+          <th style="width: 160px;">Created</th>
+          <th style="width: 180px; text-align: right;">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for t in topics %}
+        <tr>
+          <td>#{{ t.id }}</td>
+          <td>
+            <a href="/topics/{{ t.id }}" style="color: var(--accent-orange); text-decoration: none; font-weight: 600;">
+              {{ t.title }}
+            </a>
+          </td>
+          <td><span class="badge">{{ t.language }}</span></td>
+          <td>{{ t.max_duration }}s</td>
+          <td style="color: var(--text-dim); font-size: 0.85rem;">{{ t.created_at[:19] }}</td>
+          <td style="text-align: right;">
+            <a href="/topics/{{ t.id }}" class="btn btn-primary btn-sm">Open Studio</a>
+            <button class="btn btn-secondary btn-sm" onclick="deleteTopic({{ t.id }})">Delete</button>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div style="text-align: center; padding: 3rem 1rem; color: var(--text-muted);">
+      <p style="margin-bottom: 1rem;">No topics created yet.</p>
+      <button class="btn btn-primary btn-sm" onclick="openModal('new-topic-modal')">+ Create Your First Topic</button>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<!-- Recent Renders -->
+{% if recent_renders %}
+<div class="card">
+  <div class="card-header">
+    <div class="card-title">Recent Renders</div>
+    <a href="/history" style="font-size: 0.85rem; color: var(--accent-orange); text-decoration: none;">View all &rarr;</a>
+  </div>
+  <div class="table-container">
+    <table>
+      <thead>
+        <tr>
+          <th>Topic</th>
+          <th>Resolution</th>
+          <th>Duration</th>
+          <th>Frames</th>
+          <th>Status</th>
+          <th style="text-align: right;">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in recent_renders[:5] %}
+        <tr>
+          <td><strong>Topic #{{ r.topic_id }}</strong></td>
+          <td>{{ r.width }}x{{ r.height }}</td>
+          <td>{{ "%.1f"|format(r.total_dur) }}s</td>
+          <td>{{ r.frame_count }}</td>
+          <td>
+            {% if r.status in ('succeeded', 'done') %}
+            <span class="badge badge-green">Ready</span>
+            {% else %}
+            <span class="badge badge-orange">{{ r.status }}</span>
+            {% endif %}
+          </td>
+          <td style="text-align: right;">
+            <button class="btn btn-secondary btn-sm" onclick="playVideoModal({{ r.id }}, 'Topic #{{ r.topic_id }} Render')">Play</button>
+            <a href="/api/renders/{{ r.id }}/download" class="btn btn-secondary btn-sm" download>Download</a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+<!-- New Topic Modal -->
+<div id="new-topic-modal" class="modal-overlay" onclick="if(event.target===this) closeModal('new-topic-modal');">
+  <div class="modal-content">
+    <button class="modal-close" onclick="closeModal('new-topic-modal')">&times;</button>
+    <h3 style="margin-bottom: 1.25rem;">Create New Topic</h3>
+    <form id="new-topic-form" onsubmit="handleCreateTopic(event)">
+      <div class="form-group">
+        <label for="topic-title">Topic Title</label>
+        <input type="text" id="topic-title" required placeholder="e.g. Kenapa Suara Sendiri di Rekaman Terdengar Asing? Fenomena Bone Conduction" value="Kenapa Suara Sendiri di Rekaman Terdengar Asing? Fenomena Bone Conduction">
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label for="topic-lang">Language</label>
+          <select id="topic-lang">
+            <option value="Indonesian" selected>Indonesian</option>
+            <option value="English">English</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="topic-max-duration">Target Max Duration (seconds)</label>
+          <input type="number" id="topic-max-duration" value="60" min="15" max="900" step="5">
+        </div>
+      </div>
+      <div class="form-group">
+        <label for="topic-notes">Notes (Optional)</label>
+        <textarea id="topic-notes" style="min-height: 80px;" placeholder="Optional context or instructions..."></textarea>
+      </div>
+      <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.5rem;">
+        <button type="button" class="btn btn-secondary" onclick="closeModal('new-topic-modal')">Cancel</button>
+        <button type="submit" class="btn btn-primary">Create Topic</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+async function handleCreateTopic(e) {
+  e.preventDefault();
+  const title = document.getElementById('topic-title').value.trim();
+  const language = document.getElementById('topic-lang').value;
+  const max_duration = parseInt(document.getElementById('topic-max-duration').value, 10) || 60;
+  const notes = document.getElementById('topic-notes').value.trim();
+
+  if (!title) {
+    showToast("Topic title cannot be empty", "error");
+    return;
+  }
+
+  try {
+    const res = await fetch('/api/topics', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title, language, max_duration, notes })
+    });
+    if (!res.ok) throw new Error((await res.json()).detail || "Failed to create topic");
+    const data = await res.json();
+    window.location.href = `/topics/${data.id}`;
+  } catch (err) {
+    showToast(err.message, "error");
+  }
+}
+
+async function deleteTopic(id) {
+  if (!confirm("Are you sure you want to delete this topic?")) return;
+  try {
+    const res = await fetch(`/api/topics/${id}?hard=true`, { method: 'DELETE' });
+    if (!res.ok) throw new Error("Failed to delete topic");
+    showToast("Topic deleted", "success");
+    window.location.reload();
+  } catch (err) {
+    showToast(err.message, "error");
+  }
+}
+</script>
+{% endblock %}

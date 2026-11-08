@@ -40,7 +40,10 @@ def _mp_render_frame(frame_idx: int) -> bytes:
 
 
 def default_render_workers() -> int:
-    cpus = os.cpu_count() or 2
+    try:
+        cpus = len(os.sched_getaffinity(0))
+    except (AttributeError, NotImplementedError, OSError):
+        cpus = os.cpu_count() or 2
     return max(1, min(8, cpus - 1))
 
 

@@ -1,0 +1,195 @@
+{% extends "base.html" %}
+
+{% block title %}Settings - Nalarka Studio{% endblock %}
+
+{% block content %}
+<div style="margin-bottom: 1.5rem;">
+  <h1 style="font-size: 1.5rem; font-weight: 700;">Studio Settings & Configuration</h1>
+  <p style="color: var(--text-muted); font-size: 0.9rem;">Manage API credentials, AI providers, TTS settings, and config import/export</p>
+</div>
+
+<div class="grid-2">
+  <!-- Left: AI Providers -->
+  <div>
+    {% for p in providers %}
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">
+          <span>{{ p.label }}</span>
+          {% if p.is_active %}<span class="badge badge-green">ACTIVE</span>{% endif %}
+        </div>
+      </div>
+      <form onsubmit="saveProviderForm(event, '{{ p.key }}')">
+        <div class="form-group">
+          <label>Base URL</label>
+          <input type="text" id="prov-base-{{ p.key }}" value="{{ p.base_url }}">
+        </div>
+        <div class="form-group">
+          <label>API Key</label>
+          <input type="password" id="prov-key-{{ p.key }}" placeholder="{% if p.has_key %}•••••••• (Stored){% else %}Enter API key{% endif %}">
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Coder Model</label>
+            <input type="text" id="prov-coder-{{ p.key }}" value="{{ p.coder_model }}">
+          </div>
+          <div class="form-group">
+            <label>Script Model</label>
+            <input type="text" id="prov-script-{{ p.key }}" value="{{ p.script_model }}">
+          </div>
+        </div>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 1rem;">
+          <label class="form-check">
+            <input type="checkbox" id="prov-active-{{ p.key }}" {% if p.is_active %}checked{% endif %}>
+            <span>Set as Active Provider</span>
+          </label>
+          <button type="submit" class="btn btn-secondary btn-sm">Save {{ p.label }}</button>
+        </div>
+      </form>
+    </div>
+    {% endfor %}
+  </div>
+
+  <!-- Right: TTS Settings & Config Backup -->
+  <div>
+    <!-- TTS Settings -->
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">Text-to-Speech Defaults</div>
+      </div>
+      <form onsubmit="saveTTSSettings(event)">
+        <div class="form-row">
+          <div class="form-group">
+            <label>Default TTS Provider</label>
+            <select id="tts-settings-provider">
+              <option value="ElevenLabs API v1" {% if tts.provider == 'ElevenLabs API v1' %}selected{% endif %}>ElevenLabs API v1</option>
+              <option value="Edge-TTS (gratis)" {% if tts.provider == 'Edge-TTS (gratis)' %}selected{% endif %}>Edge-TTS (gratis)</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Default Voice</label>
+            <input type="text" id="tts-settings-voice" value="{{ tts.voice }}">
+          </div>
+        </div>
+        <div class="form-group">
+          <label>ElevenLabs API Key</label>
+          <input type="password" id="tts-settings-key" placeholder="{% if tts.has_api_key %}•••••••• (Stored){% else %}Enter ElevenLabs key{% endif %}">
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Model ID</label>
+            <input type="text" id="tts-settings-model" value="{{ tts.model_id }}">
+          </div>
+          <div class="form-group">
+            <label>Stability</label>
+            <input type="number" step="0.05" min="0" max="1" id="tts-settings-stability" value="{{ tts.stability }}">
+          </div>
+          <div class="form-group">
+            <label>Similarity</label>
+            <input type="number" step="0.05" min="0" max="1" id="tts-settings-similarity" value="{{ tts.similarity }}">
+          </div>
+        </div>
+        <div style="display: flex; justify-content: flex-end; margin-top: 1rem;">
+          <button type="submit" class="btn btn-secondary btn-sm">Save TTS Defaults</button>
+        </div>
+      </form>
+    </div>
+
+    <!-- Backup & Migration (F-08) -->
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">Config Import & Export (Migration)</div>
+      </div>
+      <p style="color: var(--text-muted); font-size: 0.85rem; margin-bottom: 1rem;">
+        Export or import your configurations compatible with desktop <code>config_nalarka.json</code>.
+      </p>
+      <div style="display: flex; gap: 1rem; align-items: center; margin-bottom: 1.5rem;">
+        <a href="/api/config/export?legacy=1&include_secrets=1" class="btn btn-secondary btn-sm" download="config_nalarka.json">
+          Export config_nalarka.json
+        </a>
+      </div>
+      <div style="border-top: 1px solid var(--border-color); padding-top: 1rem;">
+        <label for="import-config-file">Import config_nalarka.json</label>
+        <div style="display: flex; gap: 0.5rem; align-items: center; margin-top: 0.35rem;">
+          <input type="file" id="import-config-file" accept=".json">
+          <button class="btn btn-primary btn-sm" onclick="handleImportConfig()">Import Config</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+async function saveProviderForm(e, key) {
+  e.preventDefault();
+  const base_url = document.getElementById(`prov-base-${key}`).value.trim();
+  const api_key = document.getElementById(`prov-key-${key}`).value.trim();
+  const coder_model = document.getElementById(`prov-coder-${key}`).value.trim();
+  const script_model = document.getElementById(`prov-script-${key}`).value.trim();
+  const is_active = document.getElementById(`prov-active-${key}`).checked;
+
+  try {
+    const res = await fetch(`/api/providers/${key}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ base_url, api_key: api_key || null, coder_model, script_model, is_active })
+    });
+    if (!res.ok) throw new Error("Failed to update provider");
+    showToast(`Saved settings for ${key}`, "success");
+    if (is_active) {
+      setTimeout(() => window.location.reload(), 800);
+    }
+  } catch (err) {
+    showToast(err.message, "error");
+  }
+}
+
+async function saveTTSSettings(e) {
+  e.preventDefault();
+  const provider = document.getElementById('tts-settings-provider').value;
+  const voice = document.getElementById('tts-settings-voice').value.trim();
+  const api_key = document.getElementById('tts-settings-key').value.trim();
+  const model_id = document.getElementById('tts-settings-model').value.trim();
+  const stability = parseFloat(document.getElementById('tts-settings-stability').value);
+  const similarity = parseFloat(document.getElementById('tts-settings-similarity').value);
+
+  try {
+    const res = await fetch('/api/tts/settings', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        provider, voice, model_id, stability, similarity,
+        api_key: api_key || undefined
+      })
+    });
+    if (!res.ok) throw new Error("Failed to update TTS settings");
+    showToast("TTS defaults updated!", "success");
+  } catch (err) {
+    showToast(err.message, "error");
+  }
+}
+
+async function handleImportConfig() {
+  const input = document.getElementById('import-config-file');
+  const file = input.files[0];
+  if (!file) {
+    showToast("Please choose a config JSON file first", "error");
+    return;
+  }
+  try {
+    const text = await file.text();
+    const data = JSON.parse(text);
+    const res = await fetch('/api/config/import', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    if (!res.ok) throw new Error("Import failed");
+    showToast("Configuration successfully imported!", "success");
+    setTimeout(() => window.location.reload(), 1000);
+  } catch (err) {
+    showToast("Failed to import config: " + err.message, "error");
+  }
+}
+</script>
+{% endblock %}
