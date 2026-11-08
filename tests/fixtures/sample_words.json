@@ -1,0 +1,15 @@
+[
+  {"word": "Kenapa", "start": 1.0, "end": 1.4},
+  {"word": "suara", "start": 1.4, "end": 1.8},
+  {"word": "kita", "start": 1.8, "end": 2.2},
+  {"word": "terdengar", "start": 2.2, "end": 2.8},
+  {"word": "aneh?", "start": 2.8, "end": 3.4},
+  {"word": "Ada", "start": 5.2, "end": 5.6},
+  {"word": "dua", "start": 5.6, "end": 6.0},
+  {"word": "jalan", "start": 6.0, "end": 6.5},
+  {"word": "perambatan", "start": 6.5, "end": 7.3},
+  {"word": "suara.", "start": 7.3, "end": 8.0},
+  {"word": "Berdamailah", "start": 10.2, "end": 11.0},
+  {"word": "dengan", "start": 11.0, "end": 11.5},
+  {"word": "suaramu.", "start": 11.5, "end": 12.3}
+]

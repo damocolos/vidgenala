@@ -1,0 +1,64 @@
+{
+  "total_dur": 15,
+  "palette": {
+    "cream": "#F2EADA",
+    "orange_bg": "#EE8631",
+    "green_bg": "#38844C",
+    "dark": "#161616",
+    "red_hot": "#EC4C28",
+    "yellow_stage": "#F6C23E",
+    "blue_soft": "#B3D9EE",
+    "blue_tear": "#2680C2",
+    "mint_soft": "#B5DEC8",
+    "white": "#FFFFFF"
+  },
+  "scenes": [
+    {
+      "beat_id": 1,
+      "start": 0.0,
+      "end": 5.0,
+      "bg_color": "cream",
+      "layout": "top_text_bottom_art",
+      "dot_index": 0,
+      "transition": "cut",
+      "summary": "Hook Title",
+      "visual_blueprint": "Yellow stage circle with dark box",
+      "lines": [
+        {"text": "KENAPA", "color": "dark", "size": 100, "delay": 0.0},
+        {"text": "SUARA KITA", "color": "dark", "size": 100, "delay": 0.16},
+        {"text": "ANEH?", "color": "red_hot", "size": 100, "delay": 0.32}
+      ]
+    },
+    {
+      "beat_id": 2,
+      "start": 5.0,
+      "end": 10.0,
+      "bg_color": "orange_bg",
+      "layout": "statement_pill",
+      "dot_index": 0,
+      "transition": "cut",
+      "summary": "Dua Jalan",
+      "visual_blueprint": "Blue soft circle and sound waves",
+      "lines": [
+        {"text": "SUARA MERAMBAT", "color": "cream", "size": 95, "delay": 0.0},
+        {"text": "DUA JALAN", "color": "dark", "size": 110, "delay": 0.16},
+        {"text": "BERBEDA", "color": "cream", "size": 95, "delay": 0.32}
+      ]
+    },
+    {
+      "beat_id": 3,
+      "start": 10.0,
+      "end": 15.0,
+      "bg_color": "green_bg",
+      "layout": "triptych_dots",
+      "dot_index": 1,
+      "transition": "cut",
+      "summary": "Berdamai",
+      "visual_blueprint": "Mint stage circle with waveform bars",
+      "lines": [
+        {"text": "BERDAMAILAH", "color": "cream", "size": 105, "delay": 0.0},
+        {"text": "DENGAN SUARAMU", "color": "dark", "size": 105, "delay": 0.16}
+      ]
+    }
+  ]
+}
