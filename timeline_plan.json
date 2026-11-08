@@ -1,147 +1,361 @@
 {
+  "scenes": [
+    {
+      "beat_id": 1,
+      "start": 0.0,
+      "end": 4.6,
+      "bg_color": "cream",
+      "layout": "top_text_bottom_art",
+      "dot_index": 0,
+      "transition": "cut",
+      "summary": "Hook: Silent Angry Dad vs Crying Mom at TV",
+      "visual_blueprint": "Living-room couch split in two halves. Left: a father figure with crossed arms, tight flat-line mouth, and a small dark storm cloud with a muted zigzag bolt hovering above his head (silent anger). Right: a mother figure holding a tissue, big blue teardrops falling in sequence as she faces a small retro TV whose screen shows a pink heart and a film-reel icon. Tears bounce with a soft squash animation while the storm cloud rumbles quietly.",
+      "lines": [
+        {
+          "text": "AYAH DIAM",
+          "color": "dark",
+          "size": 110,
+          "delay": 0.0
+        },
+        {
+          "text": "IBU MENANGIS",
+          "color": "red_hot",
+          "size": 110,
+          "delay": 0.18
+        }
+      ]
+    },
+    {
+      "beat_id": 2,
+      "start": 4.6,
+      "end": 8.2,
+      "bg_color": "orange_bg",
+      "layout": "top_art_bottom_text",
+      "dot_index": 0,
+      "transition": "cut",
+      "summary": "The Stereotype: Logic Head vs Emotion Head",
+      "visual_blueprint": "Two side-profile head silhouettes facing away from each other. Left head is blue and full of spinning metal gears plus a small calculator showing '1+1=2'. Right head is pink and contains a large beating red heart with floating teardrop and sparkle emojis. A dashed label tag swings onto each head: 'LOGIS' on blue, 'EMOSIONAL' on pink. Gears tick in rhythm with the heartbeat pulses.",
+      "lines": [
+        {
+          "text": "LAKI-LAKI LOGIS",
+          "color": "cream",
+          "size": 100,
+          "delay": 0.0
+        },
+        {
+          "text": "PEREMPUAN EMOSIONAL",
+          "color": "dark",
+          "size": 90,
+          "delay": 0.18
+        }
+      ]
+    },
+    {
+      "beat_id": 3,
+      "start": 8.2,
+      "end": 10.9,
+      "bg_color": "green_bg",
+      "layout": "statement_pill",
+      "dot_index": 0,
+      "transition": "cut",
+      "summary": "The Question: Is the Brain Really Divided?",
+      "visual_blueprint": "Small pink-grey cartoon brain at the bottom with a jagged crack line zipping down its central fissure as if being split into two halves; the halves wobble apart slightly, then a giant bouncing question mark pops up between them and pauses them mid-split.",
+      "lines": [
+        {
+          "text": "BENARKAH",
+          "color": "cream",
+          "size": 110,
+          "delay": 0.0
+        },
+        {
+          "text": "OTAK",
+          "color": "dark",
+          "size": 130,
+          "delay": 0.18
+        },
+        {
+          "text": "DIBEDAKAN?",
+          "color": "cream",
+          "size": 110,
+          "delay": 0.36
+        }
+      ]
+    },
+    {
+      "beat_id": 4,
+      "start": 10.9,
+      "end": 14.0,
+      "bg_color": "cream",
+      "layout": "triptych_dots",
+      "dot_index": 1,
+      "transition": "directional_wipe",
+      "summary": "Point 1: Not Two Separate Rooms",
+      "visual_blueprint": "Top-down architectural floor plan of two rooms: left room labeled with a blue gear icon (LOGIKA), right room labeled with an orange flame/heart icon (EMOSI), separated by a thick dark wall with a closed door. The wall crumbles brick by brick and slides away, and the two room floors merge into one open space with the icons drifting toward each other.",
+      "lines": [
+        {
+          "text": "BUKAN DUA",
+          "color": "dark",
+          "size": 115,
+          "delay": 0.0
+        },
+        {
+          "text": "RUANGAN",
+          "color": "red_hot",
+          "size": 115,
+          "delay": 0.18
+        }
+      ]
+    },
+    {
+      "beat_id": 5,
+      "start": 14.0,
+      "end": 15.9,
+      "bg_color": "orange_bg",
+      "layout": "top_text_bottom_art",
+      "dot_index": 0,
+      "transition": "cut",
+      "summary": "Example: Deciding to Buy a House",
+      "visual_blueprint": "A cute two-story house with a swinging 'DIJUAL' sign and a big price tag dangling from the roof. A hand holding a pen hovers over a contract sheet with a signature line; the pen trembles with hesitation while a tiny calendar and coins float beside it.",
+      "lines": [
+        {
+          "text": "MEMBELI",
+          "color": "cream",
+          "size": 115,
+          "delay": 0.0
+        },
+        {
+          "text": "RUMAH",
+          "color": "dark",
+          "size": 120,
+          "delay": 0.18
+        }
+      ]
+    },
+    {
+      "beat_id": 6,
+      "start": 15.9,
+      "end": 20.9,
+      "bg_color": "green_bg",
+      "layout": "top_art_bottom_text",
+      "dot_index": 0,
+      "transition": "cut",
+      "summary": "Planning Center & Fear Center Fire Together",
+      "visual_blueprint": "Side-view anatomical brain. The prefrontal cortex at the front glows blue with a tiny checklist icon; the almond-shaped amygdala deep inside glows orange with a small alarm-bell icon. Bright electric pulses race back and forth along a neural cable linking the two regions, both glowing at the same moment like synchronized lights.",
+      "lines": [
+        {
+          "text": "BEKERJA",
+          "color": "cream",
+          "size": 115,
+          "delay": 0.0
+        },
+        {
+          "text": "BERSAMAAN",
+          "color": "dark",
+          "size": 115,
+          "delay": 0.18
+        }
+      ]
+    },
+    {
+      "beat_id": 7,
+      "start": 20.9,
+      "end": 24.1,
+      "bg_color": "cream",
+      "layout": "triptych_dots",
+      "dot_index": 2,
+      "transition": "whip_pan",
+      "summary": "Point 2: Two Nearly Overlapping Bell Curves",
+      "visual_blueprint": "Graph axis drawing itself left to right. A translucent blue bell curve rises, then a translucent pink bell curve rises and slides over it until they almost completely overlap, the shared area turning purple. The peaks wobble gently into place.",
+      "lines": [
+        {
+          "text": "HAMPIR",
+          "color": "dark",
+          "size": 115,
+          "delay": 0.0
+        },
+        {
+          "text": "MENUMPUK",
+          "color": "red_hot",
+          "size": 115,
+          "delay": 0.18
+        }
+      ]
+    },
+    {
+      "beat_id": 8,
+      "start": 24.1,
+      "end": 29.3,
+      "bg_color": "orange_bg",
+      "layout": "top_text_bottom_art",
+      "dot_index": 0,
+      "transition": "cut",
+      "summary": "Tiny Average Gap vs Huge Individual Spread",
+      "visual_blueprint": "Close-up of a measuring ruler: between the two curve peaks a tiny caliper pinches a minuscule gap labeled 'kecil'. Then the camera pulls back and a giant double-headed arrow stretches across the full width of the curves, while dozens of little person-dots in mixed colors scatter along the baseline from far left to far right.",
+      "lines": [
+        {
+          "text": "SELISIH KECIL",
+          "color": "cream",
+          "size": 105,
+          "delay": 0.0
+        },
+        {
+          "text": "INDIVIDU",
+          "color": "dark",
+          "size": 110,
+          "delay": 0.18
+        },
+        {
+          "text": "JAUH LEBIH LEBAR",
+          "color": "cream",
+          "size": 95,
+          "delay": 0.36
+        }
+      ]
+    },
+    {
+      "beat_id": 9,
+      "start": 29.3,
+      "end": 35.3,
+      "bg_color": "green_bg",
+      "layout": "triptych_dots",
+      "dot_index": 3,
+      "transition": "circle_iris",
+      "summary": "Point 3: Tel Aviv 2015, 1000+ Brain Scans",
+      "visual_blueprint": "A white MRI scanner tube with a patient bed sliding in and out. Each slide ejects a grey brain-scan card that flies onto a growing stack beside it; a digital counter above rapidly ticks from 0 to '1000+'. A small pin tag reading 'TEL AVIV 2015' sways on the scanner.",
+      "lines": [
+        {
+          "text": "1000+",
+          "color": "cream",
+          "size": 130,
+          "delay": 0.0
+        },
+        {
+          "text": "PEMINDAIAN OTAK",
+          "color": "dark",
+          "size": 95,
+          "delay": 0.18
+        }
+      ]
+    },
+    {
+      "beat_id": 10,
+      "start": 35.3,
+      "end": 40.7,
+      "bg_color": "cream",
+      "layout": "top_art_bottom_text",
+      "dot_index": 0,
+      "transition": "cut",
+      "summary": "Most Brains Are a Mosaic",
+      "visual_blueprint": "Brain outline filling with small hexagonal mosaic tiles that pop in one by one in a random mix of blue, pink, and purple, like stained glass. Tiles flip and shimmer; no region is all one color, showing a patchwork of traits.",
+      "lines": [
+        {
+          "text": "OTAK ITU",
+          "color": "dark",
+          "size": 110,
+          "delay": 0.0
+        },
+        {
+          "text": "MOSAIK",
+          "color": "red_hot",
+          "size": 125,
+          "delay": 0.18
+        }
+      ]
+    },
+    {
+      "beat_id": 11,
+      "start": 40.7,
+      "end": 44.0,
+      "bg_color": "orange_bg",
+      "layout": "statement_pill",
+      "dot_index": 0,
+      "transition": "crossfade",
+      "summary": "Not a Blue or Pink Box",
+      "visual_blueprint": "Two cardboard boxes at the bottom, one blue and one pink, with lids flapping open. A mosaic brain hops up, refuses to drop into either, and the box walls fold flat and collapse outward with a puff of dust.",
+      "lines": [
+        {
+          "text": "BUKAN",
+          "color": "cream",
+          "size": 110,
+          "delay": 0.0
+        },
+        {
+          "text": "KOTAK",
+          "color": "dark",
+          "size": 130,
+          "delay": 0.18
+        },
+        {
+          "text": "BIRU / PINK",
+          "color": "cream",
+          "size": 100,
+          "delay": 0.36
+        }
+      ]
+    },
+    {
+      "beat_id": 12,
+      "start": 44.0,
+      "end": 50.0,
+      "bg_color": "green_bg",
+      "layout": "top_text_bottom_art",
+      "dot_index": 0,
+      "transition": "cut",
+      "summary": "Logic + Emotion: One Package for Everyone",
+      "visual_blueprint": "Two jigsaw puzzle pieces, a blue gear-patterned piece and an orange heart-patterned piece, slide in from opposite sides and click together into one glowing whole. A row of diverse human silhouettes (men, women, kids, elders) appears beneath, each lighting up with the same combined puzzle icon on their chest.",
+      "lines": [
+        {
+          "text": "SATU PAKET",
+          "color": "cream",
+          "size": 115,
+          "delay": 0.0
+        },
+        {
+          "text": "SEMUA MANUSIA",
+          "color": "dark",
+          "size": 105,
+          "delay": 0.18
+        }
+      ]
+    }
+  ],
   "palette": {
     "cream": "#F2EADA",
     "orange_bg": "#EE8631",
     "green_bg": "#38844C",
-    "dark": "#161616",
+    "blue_bg": "#2680C2",
+    "dark": "#181818",
     "red_hot": "#EC4C28",
     "yellow_stage": "#F6C23E",
     "blue_soft": "#B3D9EE",
     "blue_tear": "#2680C2",
     "mint_soft": "#B5DEC8",
     "pink_organ": "#F38375",
-    "pink_brain": "#F5A3A2",
+    "pink_soft": "#F5A3A2",
+    "purple_soft": "#C8B6E2",
+    "skin": "#F7C6A3",
+    "skin_dark": "#E0A37B",
     "white": "#FFFFFF",
-    "muted": "#7F7B74"
+    "grey": "#7F7B74",
+    "stone": "#6E6A63",
+    "stone_dark": "#4A4742"
   },
-  "scenes": [
-    {
-      "start": 0.0,
-      "end": 1.6,
-      "bg_color": "cream",
-      "transition": "cut",
-      "summary": "Title hook: kenapa suara sendiri bikin cringe",
-      "code": "art.poster_lines([{\"text\": \"KENAPA\", \"color\": \"dark\", \"size\": 110, \"delay\": 0.0}, {\"text\": \"SUARA SENDIRI\", \"color\": \"dark\", \"size\": 100, \"delay\": 0.15}, {\"text\": \"BIKIN CRINGE?\", \"color\": \"red_hot\", \"size\": 110, \"delay\": 0.30}], y_start=0.16)\nart.stage_circle(0.5, 0.72, r=0.30, color=\"yellow_stage\", delay=0.1)\nart.expressive_face(0.5, 0.72, scale=0.85, yawn_open=0.7, stage_color=\"yellow_stage\", delay=0.2)"
-    },
-    {
-      "start": 1.6,
-      "end": 3.7,
-      "bg_color": "cream",
-      "transition": "whip_pan",
-      "summary": "Hook reaction 1: Geli",
-      "code": "art.three_dots(active_index=1, y=0.075)\nart.stage_circle(0.5, 0.43, r=0.34, color=\"blue_soft\", delay=0.0)\nart.expressive_face(0.5, 0.43, scale=1.0, yawn_open=0.35, stage_color=\"blue_soft\", delay=0.05)\nart.poster_lines([{\"text\": \"GELI\", \"color\": \"dark\", \"size\": 150, \"delay\": 0.0}], y_start=0.73)"
-    },
-    {
-      "start": 3.7,
-      "end": 6.1,
-      "bg_color": "cream",
-      "transition": "cut",
-      "summary": "Hook reaction 2: Malu, tiap dengar rekaman sendiri",
-      "code": "art.three_dots(active_index=2, y=0.075)\nart.stage_circle(0.5, 0.43, r=0.34, color=\"blue_soft\", delay=0.0)\nart.expressive_face(0.5, 0.43, scale=1.0, yawn_open=0.2, stage_color=\"blue_soft\", delay=0.05)\nart.speech_bubble(0.78, 0.22, text=\"REKAMAN?\", bg=\"white\", text_col=\"red_hot\", delay=0.2)\nart.poster_lines([{\"text\": \"MALU\", \"color\": \"dark\", \"size\": 150, \"delay\": 0.0}, {\"text\": \"DENGAR REKAMAN\", \"color\": \"muted\", \"size\": 70, \"delay\": 0.25}], y_start=0.73)"
-    },
-    {
-      "start": 6.1,
-      "end": 11.4,
-      "bg_color": "orange_bg",
-      "transition": "cut",
-      "summary": "Hook reaction 3: Langsung tekan skip — padahal ini suara yang dengar orang lain tiap hari",
-      "code": "art.three_dots(active_index=3, y=0.075)\nart.stage_circle(0.5, 0.43, r=0.34, color=\"yellow_stage\", delay=0.0)\nart.expressive_face(0.5, 0.43, scale=1.0, yawn_open=0.15, stage_color=\"yellow_stage\", delay=0.05)\nart.flat_pill(0.5, 0.66, w=0.34, h=0.09, color=\"dark\", angle=-4.0, delay=0.2)\nart.poster_lines([{\"text\": \"TEKAN SKIP\", \"color\": \"cream\", \"size\": 130, \"delay\": 0.0}, {\"text\": \"padahal orang lain dengar tiap hari\", \"color\": \"dark\", \"size\": 48, \"delay\": 0.5}], y_start=0.73)"
-    },
-    {
-      "start": 11.4,
-      "end": 15.5,
-      "bg_color": "cream",
-      "transition": "circle_iris",
-      "summary": "Inti 1: suara merambat lewat dua jalan",
-      "code": "art.stage_circle(0.5, 0.43, r=0.34, color=\"mint_soft\", delay=0.0)\nart.expressive_face(0.5, 0.43, scale=0.95, yawn_open=0.25, stage_color=\"mint_soft\", delay=0.05)\nart.flat_circle(0.28, 0.20, r=0.07, color=\"blue_soft\", delay=0.3)\nart.flat_circle(0.72, 0.20, r=0.07, color=\"yellow_stage\", delay=0.45)\nart.poster_lines([{\"text\": \"SUARA LEWAT\", \"color\": \"dark\", \"size\": 80, \"delay\": 0.0}, {\"text\": \"DUA JALAN\", \"color\": \"red_hot\", \"size\": 110, \"delay\": 0.3}], y_start=0.73)"
-    },
-    {
-      "start": 15.5,
-      "end": 20.7,
-      "bg_color": "cream",
-      "transition": "cut",
-      "summary": "Inti 1: Udara dan tulang tengkorak",
-      "code": "art.stage_circle(0.5, 0.43, r=0.34, color=\"mint_soft\", delay=0.0)\nart.expressive_face(0.5, 0.43, scale=0.95, yawn_open=0.25, stage_color=\"mint_soft\", delay=0.05)\nart.speech_bubble(0.24, 0.20, text=\"UDARA\", bg=\"white\", text_col=\"blue_tear\", delay=0.2)\nart.speech_bubble(0.76, 0.20, text=\"TULANG\", bg=\"dark\", text_col=\"yellow_stage\", delay=0.4)\nart.poster_lines([{\"text\": \"UDARA\", \"color\": \"blue_tear\", \"size\": 110, \"delay\": 0.0}, {\"text\": \"+ TULANG TENGGORAK\", \"color\": \"dark\", \"size\": 80, \"delay\": 0.35}], y_start=0.73)"
-    },
-    {
-      "start": 20.7,
-      "end": 23.6,
-      "bg_color": "cream",
-      "transition": "cut",
-      "summary": "Inti 1: tulang menambah getaran rendah seperti bass, suara lebih dalam & hangat",
-      "code": "art.stage_circle(0.5, 0.43, r=0.34, color=\"mint_soft\", delay=0.0)\nart.expressive_face(0.5, 0.43, scale=0.95, yawn_open=0.2, stage_color=\"mint_soft\", delay=0.05)\nart.hormone_burst(0.5, 0.20, labels=[\"BASS\", \"GETARAN RENDAH\"])\nart.poster_lines([{\"text\": \"LEBIH DALAM\", \"color\": \"dark\", \"size\": 90, \"delay\": 0.0}, {\"text\": \"DAN HANGAT\", \"color\": \"red_hot\", \"size\": 100, \"delay\": 0.3}], y_start=0.73)"
-    },
-    {
-      "start": 23.6,
-      "end": 26.0,
-      "bg_color": "cream",
-      "transition": "whip_pan",
-      "summary": "Inti 2: rekaman cuma menangkap lewat udara",
-      "code": "art.stage_circle(0.5, 0.43, r=0.34, color=\"blue_soft\", delay=0.0)\nart.speech_bubble(0.5, 0.43, text=\"UDARA SAJA\", bg=\"white\", text_col=\"red_hot\", delay=0.2)\nart.flat_circle(0.5, 0.70, r=0.10, color=\"dark\", delay=0.4)\nart.poster_lines([{\"text\": \"REKAMAN\", \"color\": \"dark\", \"size\": 110, \"delay\": 0.0}, {\"text\": \"CUMA LEWAT UDARA\", \"color\": \"blue_tear\", \"size\": 80, \"delay\": 0.3}], y_start=0.14)"
-    },
-    {
-      "start": 26.0,
-      "end": 29.6,
-      "bg_color": "orange_bg",
-      "transition": "circle_iris",
-      "summary": "Inti 2: otak yang jatuh cinta pada versi tulang langsung terkejut",
-      "code": "art.cute_brain(0.5, 0.43, scale=1.15, expression=\"shocked\", delay=0.05)\nart.speech_bubble(0.78, 0.20, text=\"BUKAN INI!\", bg=\"white\", text_col=\"red_hot\", delay=0.4)\nart.poster_lines([{\"text\": \"OTAK TERKEJUT\", \"color\": \"cream\", \"size\": 100, \"delay\": 0.0}, {\"text\": \"versi tulang jadi andalan\", \"color\": \"dark\", \"size\": 50, \"delay\": 0.4}], y_start=0.73)"
-    },
-    {
-      "start": 29.6,
-      "end": 32.7,
-      "bg_color": "cream",
-      "transition": "whip_pan",
-      "summary": "Inti 2: kayak lihat wajah di cermin tiba-tiba menyipit",
-      "code": "art.mirror_faces(y=0.45, mode=\"contagious_yawn\")\nart.poster_lines([{\"text\": \"WAJAH DI CERMIN\", \"color\": \"dark\", \"size\": 85, \"delay\": 0.0}, {\"text\": \"TIBA-TIBA MENYIPIT\", \"color\": \"red_hot\", \"size\": 85, \"delay\": 0.35}], y_start=0.14)"
-    },
-    {
-      "start": 32.7,
-      "end": 37.6,
-      "bg_color": "cream",
-      "transition": "circle_iris",
-      "summary": "Inti 3: penelitian — kita menilai suara sendiri lebih kejam",
-      "code": "art.stage_circle(0.32, 0.43, r=0.26, color=\"blue_soft\", delay=0.0)\nart.stage_circle(0.68, 0.43, r=0.26, color=\"mint_soft\", delay=0.1)\nart.expressive_face(0.32, 0.43, scale=0.75, yawn_open=0.15, stage_color=\"blue_soft\", delay=0.05)\nart.expressive_face(0.68, 0.43, scale=0.75, yawn_open=0.2, stage_color=\"mint_soft\", delay=0.15)\nart.poster_lines([{\"text\": \"KITA LEBIH KEJAM\", \"color\": \"red_hot\", \"size\": 85, \"delay\": 0.0}, {\"text\": \"kepada suara sendiri\", \"color\": \"dark\", \"size\": 60, \"delay\": 0.4}], y_start=0.73)"
-    },
-    {
-      "start": 37.6,
-      "end": 41.9,
-      "bg_color": "green_bg",
-      "transition": "whip_pan",
-      "summary": "Inti 3: orang lain justru anggap biasa, bahkan nyaman",
-      "code": "art.stage_circle(0.5, 0.43, r=0.34, color=\"mint_soft\", delay=0.0)\nart.expressive_face(0.5, 0.43, scale=1.0, yawn_open=0.25, stage_color=\"mint_soft\", delay=0.05)\nart.speech_bubble(0.78, 0.20, text=\"BIASA SAJA\", bg=\"white\", text_col=\"dark\", delay=0.3)\nart.poster_lines([{\"text\": \"ORANG LAIN\", \"color\": \"cream\", \"size\": 95, \"delay\": 0.0}, {\"text\": \"MALAH NYAMAN DENGAR\", \"color\": \"yellow_stage\", \"size\": 75, \"delay\": 0.4}], y_start=0.73)"
-    },
-    {
-      "start": 41.9,
-      "end": 44.7,
-      "bg_color": "cream",
-      "transition": "circle_iris",
-      "summary": "Penutup: suara di rekaman bukan penipu",
-      "code": "art.stage_circle(0.5, 0.43, r=0.34, color=\"yellow_stage\", delay=0.0)\nart.speech_bubble(0.5, 0.43, text=\"BUKAN PENIPU\", bg=\"white\", text_col=\"dark\", delay=0.2)\nart.flat_circle(0.5, 0.70, r=0.10, color=\"dark\", delay=0.4)\nart.poster_lines([{\"text\": \"SUARA REKAMAN\", \"color\": \"dark\", \"size\": 95, \"delay\": 0.0}, {\"text\": \"BUKAN PENIPU\", \"color\": \"red_hot\", \"size\": 105, \"delay\": 0.3}], y_start=0.14)"
-    },
-    {
-      "start": 44.7,
-      "end": 49.3,
-      "bg_color": "cream",
-      "transition": "whip_pan",
-      "summary": "Penutup: itu diri kita yang sesungguhnya, diterima dunia tanpa protes",
-      "code": "art.stage_circle(0.5, 0.43, r=0.34, color=\"mint_soft\", delay=0.0)\nart.expressive_face(0.5, 0.43, scale=1.0, yawn_open=0.3, stage_color=\"mint_soft\", delay=0.05)\nart.empathy_bridge(y=0.20, label_top=\"DITERIMA DUNIA\")\nart.poster_lines([{\"text\": \"DIRI SESUNGGUHNYA\", \"color\": \"dark\", \"size\": 80, \"delay\": 0.0}, {\"text\": \"dunia terima tanpa protes\", \"color\": \"muted\", \"size\": 55, \"delay\": 0.4}], y_start=0.73)"
-    },
-    {
-      "start": 49.3,
-      "end": 52.0,
-      "bg_color": "green_bg",
-      "transition": "circle_iris",
-      "summary": "Penutup: saatnya berdamai dengan suara sendiri",
-      "code": "art.stage_circle(0.5, 0.43, r=0.34, color=\"mint_soft\", delay=0.0)\nart.expressive_face(0.5, 0.43, scale=1.0, yawn_open=0.35, stage_color=\"mint_soft\", delay=0.05)\nart.hormone_burst(0.5, 0.20, labels=[\"DAMAI\", \"TERIMA\"])\nart.poster_lines([{\"text\": \"SAATNYA\", \"color\": \"cream\", \"size\": 95, \"delay\": 0.0}, {\"text\": \"BERDAMAI\", \"color\": \"yellow_stage\", \"size\": 120, \"delay\": 0.3}], y_start=0.73)"
-    },
-    {
-      "start": 52.0,
-      "end": 54.0,
-      "bg_color": "green_bg",
-      "transition": "cut",
-      "summary": "Closing statement: suara rekaman = diri kita yang sesungguhnya",
-      "code": "art.statement_pill_poster(top_word=\"SUARAKU\", pill_word=\"ITUKU\", bottom_word=\"SESUNGGUHNYA\", text_color=\"cream\", pill_bg=\"dark\", pill_angle=-4.0, y_center=0.43)"
+  "total_duration": 50,
+  "scene_sources": {
+    "helpers": {},
+    "beats": {
+      "beat_01": "def beat_01(v):\n    # Living-room couch split in two halves (art lives in lower half)\n    shake = v.wave(freq=7.0, amp=2.5)\n    v.backdrop_circle(r=300, color=\"yellow_stage\", x=0, y=150)\n    # couch backrest + seat, split down the middle\n    v.rect(-150, 125, 300, 90, radius=26, color=\"brown\", delay=0.0)\n    v.rect(150, 125, 300, 90, radius=26, color=\"brown\", delay=0.05)\n    v.rect(0, 205, 640, 70, radius=24, color=\"stone_dark\", delay=0.1)\n    v.line(0, 90, 0, 240, width=8, color=\"cream\")\n\n    # --- Dad (left): crossed arms, flat mouth\n    dx = -170\n    v.rect(dx, 165, 120, 110, radius=40, color=\"blue_soft\", delay=0.15)\n    v.circle(dx, 70, 46, color=\"skin\", delay=0.15)\n    v.rect(dx, 150, 130, 28, radius=14, color=\"skin_dark\", delay=0.25)\n    v.line(dx - 20, 55, dx - 8, 60, width=5, color=\"dark\")\n    v.line(dx + 20, 55, dx + 8, 60, width=5, color=\"dark\")\n    v.line(dx - 16, 88, dx + 16, 88, width=5, color=\"dark\")\n    # storm cloud rumbling quietly + muted bolt\n    v.blob(dx + shake, -20, r=42, lobes=6, color=\"stone_dark\", delay=0.3)\n    v.poly([(dx - 4, 5), (dx + 12, 5), (dx + 2, 25), (dx + 14, 25),\n            (dx - 8, 55), (dx - 2, 32), (dx - 14, 32)],\n           color=\"grey\", dx=shake, alpha=int(150 + 80 * abs(math.sin(v.lt * 3))), delay=0.35)\n\n    # --- Mom (right): tissue, falling tears\n    mx = 50\n    v.circle(mx, 62, 54, color=\"brown\", delay=0.2)\n    v.rect(mx, 165, 115, 110, radius=40, color=\"pink_soft\", delay=0.2)\n    v.circle(mx, 72, 44, color=\"skin\", delay=0.2)\n    v.circle(mx + 14, 66, 5, color=\"dark\")\n    v.arc(mx + 10, 92, 22, 12, start=180, end=360, width=4, color=\"dark\")\n    v.rect(mx - 30 + v.wave(freq=2.0, amp=3), 112, 34, 30, radius=8, color=\"white\", angle=-12, delay=0.3)\n    for i in range(3):\n        t = (v.lt * 1.1 + i / 3.0) % 1.0\n        ty = 82 + t * 95\n        if t < 0.85:\n            v.droplet(mx + 24, ty, r=11, color=\"blue_tear\")\n        else:\n            sq = (t - 0.85) / 0.15\n            v.ellipse(mx + 24, 178, 26 + 14 * sq, 10, color=\"blue_tear\", alpha=int(255 * (1 - sq)))\n\n    # --- Retro TV with heart + film reel\n    tx, ty0 = 265, 120\n    v.line(tx - 20, ty0 - 70, tx - 45, ty0 - 110, width=5, color=\"dark\")\n    v.line(tx + 20, ty0 - 70, tx + 45, ty0 - 110, width=5, color=\"dark\")\n    v.rect(tx, ty0, 160, 130, radius=22, color=\"stone_dark\", delay=0.25)\n    v.rect(tx - 10, ty0, 115, 95, radius=14, color=\"blue_soft\", delay=0.3)\n    s = 16 * v.pulse(freq=1.8, lo=0.9, hi=1.1)\n    v.circle(tx - 18 - s * 0.5, ty0 - 8 - s * 0.3, s * 0.6, color=\"pink_organ\")\n    v.circle(tx - 18 + s * 0.5, ty0 - 8 - s * 0.3, s * 0.6, color=\"pink_organ\")\n    v.poly([(tx - 18 - s * 1.08, ty0 - 6), (tx - 18 + s * 1.08, ty0 - 6), (tx - 18, ty0 + s * 1.2)], color=\"pink_organ\")\n    v.circle(tx + 25, ty0 + 22, 13, color=\"dark\")\n    v.circle(tx + 25, ty0 + 22, 4, color=\"white\")\n    v.circle(tx + 66, ty0 - 20, 7, color=\"grey\")",
+      "beat_02": "def beat_02(v):\n    def gear(x, y, r, ang, c):\n        pts = []\n        n = 8\n        for k in range(n):\n            a0 = ang + k * 360.0 / n\n            for off, rr in ((-16, r * 0.76), (-9, r), (9, r), (16, r * 0.76)):\n                a = math.radians(a0 + off)\n                pts.append((x + rr * math.cos(a), y + rr * math.sin(a)))\n        v.poly(pts, color=c)\n        v.circle(x, y, r * 0.32, color=\"blue_soft\")\n\n    beat = v.pulse(freq=1.6, lo=0.9, hi=1.12)\n    tick = int(v.lt * 3.2) * 22.5 + 22.5 * v.ease(delay=(v.lt * 3.2 % 1) / 3.2 * 0, dur=0.1)\n\n    # --- Left head (blue, faces left)\n    lx, ly = -175, -120\n    v.circle(lx, ly, 115, color=\"blue_soft\", delay=0.0)\n    v.poly([(lx - 100, ly + 10), (lx - 140, ly + 45), (lx - 95, ly + 60)], color=\"blue_soft\", delay=0.0)\n    v.rect(lx + 10, ly + 110, 120, 70, radius=24, color=\"blue_soft\", delay=0.0)\n    gear(lx - 30, ly - 35, 42, tick, \"stone\")\n    gear(lx + 38, ly + 10, 30, -tick + 10, \"grey\")\n    v.rect(lx - 10, ly + 65, 110, 40, radius=10, color=\"dark\", delay=0.2)\n    v.label_pill(lx - 10, ly + 65, text=\"1+1=2\", bg=\"dark\", fg=\"mint_soft\", size=22, pointer=False, delay=0.25)\n\n    # --- Right head (pink, faces right)\n    rx, ry = 175, -120\n    v.circle(rx, ry, 115, color=\"pink_soft\", delay=0.1)\n    v.poly([(rx + 100, ry + 10), (rx + 140, ry + 45), (rx + 95, ry + 60)], color=\"pink_soft\", delay=0.1)\n    v.rect(rx - 10, ry + 110, 120, 70, radius=24, color=\"pink_soft\", delay=0.1)\n    s = 38 * beat\n    hx, hy = rx - 10, ry\n    v.circle(hx - s * 0.5, hy - s * 0.3, s * 0.6, color=\"red_hot\")\n    v.circle(hx + s * 0.5, hy - s * 0.3, s * 0.6, color=\"red_hot\")\n    v.poly([(hx - s * 1.08, hy - 6), (hx + s * 1.08, hy - 6), (hx, hy + s * 1.2)], color=\"red_hot\")\n    v.droplet(rx + 55, ry - 55 + v.wave(freq=1.5, amp=8), r=14, color=\"blue_tear\", delay=0.3)\n    v.starburst(rx - 60, ry - 65 + v.wave(freq=1.8, amp=6, phase=1.0), r_out=18, r_in=7, points=4, color=\"yellow_stage\", speed=0.8, delay=0.35)\n\n    # --- Swinging dashed tags\n    sw1 = 14 * math.sin(v.lt * 5) * math.exp(-v.lt * 1.2)\n    sw2 = 14 * math.sin(v.lt * 5 + 1.2) * math.exp(-v.lt * 1.2)\n    v.line(lx, ly - 115, lx + sw1, ly - 160, width=4, color=\"dark\", dashed=True)\n    v.label_pill(lx + sw1, ly - 160, text=\"LOGIS\", bg=\"white\", fg=\"blue_tear\", size=30, pointer=False, delay=0.5)\n    v.line(rx, ry - 115, rx + sw2, ry - 160, width=4, color=\"dark\", dashed=True)\n    v.label_pill(rx + sw2, ry - 160, text=\"EMOSIONAL\", bg=\"white\", fg=\"red_hot\", size=30, pointer=False, delay=0.7)",
+      "beat_03": "def beat_03(v):\n    by = 185\n    paused = v.lt > 1.3\n    sep = 4 + 20 * v.ease(delay=0.6, dur=0.6)\n    wob = 0 if paused else v.wave(freq=6.0, amp=4.0)\n    L = -58 - sep - wob\n    R = 58 + sep + wob\n\n    v.ellipse(0, by + 78, 300, 22, color=\"dark\", alpha=40)\n    v.blob(L, by, r=72, lobes=6, color=\"pink_soft\", delay=0.0)\n    v.blob(R, by, r=72, lobes=6, color=\"pink_soft\", delay=0.05)\n    # grey creases\n    v.bezier([(L - 45, by - 20), (L - 20, by - 40), (L, by), (L + 25, by - 25)], width=6, color=\"grey\")\n    v.bezier([(L - 40, by + 25), (L - 15, by + 10), (L + 5, by + 40), (L + 30, by + 20)], width=6, color=\"grey\")\n    v.bezier([(R - 25, by - 25), (R, by), (R + 20, by - 40), (R + 45, by - 20)], width=6, color=\"grey\")\n    v.bezier([(R - 30, by + 20), (R - 5, by + 40), (R + 15, by + 10), (R + 40, by + 25)], width=6, color=\"grey\")\n\n    # jagged crack zipping down\n    pts = [(0, by - 75), (-10, by - 50), (8, by - 25), (-8, by), (10, by + 25), (-6, by + 50), (0, by + 72)]\n    prog = v.ease(delay=0.15, dur=0.45)\n    segs = len(pts) - 1\n    for i in range(segs):\n        sp = min(1.0, max(0.0, prog * segs - i))\n        if sp > 0:\n            v.line(pts[i][0], pts[i][1], pts[i + 1][0], pts[i + 1][1], width=6, color=\"dark\", progress=sp)\n\n    # giant bouncing question mark\n    s = v.elastic(delay=1.1, dur=0.7)\n    if s > 0.01:\n        qy = 60 + v.wave(freq=2.2, amp=7) - 20 * s\n        k = 0.9 * s\n        v.circle(0, qy, 62 * k, color=\"yellow_stage\", alpha=200)\n        v.bezier([(-26 * k, qy - 28 * k), (-26 * k, qy - 70 * k), (34 * k, qy - 70 * k), (28 * k, qy - 28 * k)], width=int(16 * k) + 1, color=\"purple\")\n        v.bezier([(28 * k, qy - 28 * k), (22 * k, qy - 5 * k), (0, qy - 8 * k), (0, qy + 18 * k)], width=int(16 * k) + 1, color=\"purple\")\n        v.circle(0, qy + 42 * k, 10 * k, color=\"purple\")",
+      "beat_04": "def beat_04(v):\n    def gear(x, y, r, c):\n        ang = v.lt * 60\n        pts = []\n        for k in range(8):\n            a0 = ang + k * 45\n            for off, rr in ((-16, r * 0.76), (-9, r), (9, r), (16, r * 0.76)):\n                a = math.radians(a0 + off)\n                pts.append((x + rr * math.cos(a), y + rr * math.sin(a)))\n        v.poly(pts, color=c)\n        v.circle(x, y, r * 0.33, color=\"white\")\n\n    cy = 40\n    v.rect(0, cy, 640, 290, radius=18, color=\"dark\", delay=0.0)\n    v.rect(-158, cy, 296, 260, radius=10, color=\"blue_soft\", delay=0.05)\n    v.rect(158, cy, 296, 260, radius=10, color=\"pink_soft\", delay=0.1)\n    merge = v.ease(delay=1.9, dur=0.6)\n    if merge > 0:\n        v.rect(0, cy, 612, 260, radius=10, color=\"mint_soft\", alpha=int(255 * merge))\n\n    # wall of bricks crumbling + door\n    for i in range(8):\n        bx = 0\n        byy = cy - 115 + i * 33\n        f = v.ease(delay=0.9 + i * 0.1, dur=0.5)\n        if f < 1.0:\n            v.rect(bx + (i % 2 * 2 - 1) * 30 * f, byy + 200 * f * f, 20, 30, radius=4,\n                   color=\"stone_dark\", angle=60 * f * (1 if i % 2 else -1), alpha=int(255 * (1 - f)))\n    door = v.ease(delay=0.8, dur=0.5)\n    if door < 1.0:\n        v.rect(0, cy + 260 * door, 26, 64, radius=6, color=\"brown\", alpha=int(255 * (1 - door)))\n        v.circle(6, cy + 260 * door, 3, color=\"yellow_stage\")\n\n    drift = 75 * v.spring(delay=2.1, dur=0.7)\n    gx = -158 + drift\n    fx = 158 - drift\n    bob = v.wave(freq=1.5, amp=5)\n    gear(gx, cy - 15 + bob, 46, \"blue_tear\")\n    v.poly([(fx, cy - 75), (fx + 38, cy - 5), (fx + 25, cy + 30), (fx - 25, cy + 30), (fx - 38, cy - 5)],\n           color=\"red_hot\", dy=-bob, delay=0.15)\n    v.poly([(fx, cy - 30), (fx + 18, cy + 5), (fx + 10, cy + 25), (fx - 10, cy + 25), (fx - 18, cy + 5)],\n           color=\"yellow_stage\", dy=-bob, scale=v.pulse(freq=3, lo=0.9, hi=1.1), delay=0.2)\n    v.label_pill(gx, cy + 75, text=\"LOGIKA\", bg=\"white\", fg=\"blue_tear\", size=28, pointer=False, delay=0.3)\n    v.label_pill(fx, cy + 75, text=\"EMOSI\", bg=\"white\", fg=\"red_hot\", size=28, pointer=False, delay=0.4)",
+      "beat_05": "def beat_05(v):\n    hx, hy = -175, 165\n    v.rect(hx, hy, 210, 180, radius=12, color=\"white\", delay=0.0)\n    v.poly([(hx - 125, hy - 85), (hx, hy - 175), (hx + 125, hy - 85)], color=\"red_hot\", delay=0.05)\n    v.line(hx - 105, hy, hx + 105, hy, width=6, color=\"stone\")\n    v.rect(hx - 50, hy - 45, 44, 38, radius=6, color=\"blue_soft\", delay=0.1)\n    v.rect(hx + 50, hy - 45, 44, 38, radius=6, color=\"blue_soft\", delay=0.1)\n    v.rect(hx - 50, hy + 45, 40, 70, radius=8, color=\"brown\", delay=0.12)\n    v.rect(hx + 50, hy + 40, 44, 38, radius=6, color=\"blue_soft\", delay=0.12)\n    # price tag dangling from roof\n    tw = v.wave(freq=2.5, amp=6)\n    v.line(hx + 60, hy - 120, hx + 95 + tw, hy - 70, width=3, color=\"dark\")\n    v.label_pill(hx + 105 + tw, hy - 60, text=\"Rp 1 M\", bg=\"yellow_stage\", fg=\"dark\", size=24, pointer=False, delay=0.15)\n    # swinging DIJUAL sign\n    sw = v.wave(freq=1.8, amp=8)\n    v.line(hx - 150, hy + 90, hx - 150, hy - 10, width=8, color=\"brown\")\n    v.label_pill(hx - 150 + sw, hy + 15, text=\"DIJUAL\", bg=\"white\", fg=\"red_hot\", size=24, pointer=False, delay=0.2)\n\n    # contract sheet\n    cx, cy = 165, 160\n    v.rect(cx, cy, 180, 220, radius=10, color=\"white\", shadow=True, delay=0.1)\n    for i in range(4):\n        v.line(cx - 65, cy - 75 + i * 26, cx + 65 - (i % 2) * 30, cy - 75 + i * 26, width=6, color=\"grey\")\n    v.line(cx - 60, cy + 70, cx + 60, cy + 70, width=4, color=\"dark\", dashed=True, dash_speed=0)\n    # hand + trembling pen\n    tr = v.wave(freq=11.0, amp=3.5)\n    px, py = cx + 20 + tr, cy + 30 + v.wave(freq=9.0, amp=2.5, phase=0.7)\n    v.line(px, py, px + 55, py - 70, width=10, color=\"dark\")\n    v.ellipse(px + 55, py - 65, 58, 42, color=\"skin\", angle=-30, delay=0.15)\n    # floating calendar + coins\n    fy = v.wave(freq=1.4, amp=7)\n    v.rect(cx + 140, cy - 60 + fy, 60, 56, radius=8, color=\"white\", delay=0.25)\n    v.rect(cx + 140, cy - 82 + fy, 60, 14, radius=6, color=\"red_hot\", delay=0.25)\n    v.circle(cx + 130, cy + 40 - fy, 16, color=\"yellow_stage\", delay=0.3)\n    v.circle(cx + 158, cy + 62 - fy, 13, color=\"yellow_stage\", delay=0.35)",
+      "beat_06": "def beat_06(v):\n    glow = 0.5 + 0.5 * math.sin(v.lt * 5.0)\n    ga = int(90 + 140 * glow)\n    v.backdrop_circle(r=250, color=\"mint_soft\", x=0, y=-110)\n    # brain side view (front = right)\n    v.blob(0, -120, r=155, lobes=8, color=\"pink_soft\", delay=0.0)\n    v.ellipse(-95, -25, 110, 70, color=\"pink_organ\", delay=0.05)\n    v.rect(-30, 25, 44, 90, radius=18, color=\"skin_dark\", delay=0.05)\n    v.bezier([(-110, -170), (-60, -210), (0, -150), (40, -200)], width=7, color=\"pink_organ\")\n    v.bezier([(-90, -100), (-40, -130), (10, -80), (60, -120)], width=7, color=\"pink_organ\")\n\n    # prefrontal cortex (front) glowing blue + checklist\n    px, py = 105, -150\n    v.circle(px, py, 62, color=\"blue_soft\", alpha=ga)\n    v.rect(px, py, 50, 60, radius=6, color=\"white\", delay=0.2)\n    for i in range(3):\n        yy = py - 16 + i * 16\n        v.line(px - 16, yy, px - 10, yy + 5, width=3, color=\"blue_tear\")\n        v.line(px - 10, yy + 5, px - 2, yy - 6, width=3, color=\"blue_tear\")\n        v.line(px + 4, yy, px + 18, yy, width=3, color=\"grey\")\n\n    # amygdala (deep) glowing orange + bell\n    ax, ay = -20, -70\n    v.circle(ax, ay, 45, color=\"red_hot\", alpha=ga)\n    v.ellipse(ax, ay, 56, 36, color=\"yellow_stage\", angle=-20, delay=0.2)\n    rock = v.wave(freq=8.0, amp=3)\n    v.poly([(ax - 12, ay + 8), (ax - 9, ay - 8), (ax, ay - 14), (ax + 9, ay - 8), (ax + 12, ay + 8)],\n           color=\"red_hot\", dx=rock, delay=0.25)\n    v.circle(ax + rock, ay + 11, 3, color=\"dark\")\n\n    # neural cable + racing pulses\n    c = [(ax + 25, ay - 5), (20, -150), (60, -60), (px - 45, py + 10)]\n    v.bezier(c, width=8, color=\"purple\")\n\n    def bz(t):\n        u = 1 - t\n        x = u ** 3 * c[0][0] + 3 * u * u * t * c[1][0] + 3 * u * t * t * c[2][0] + t ** 3 * c[3][0]\n        y = u ** 3 * c[0][1] + 3 * u * u * t * c[1][1] + 3 * u * t * t * c[2][1] + t ** 3 * c[3][1]\n        return x, y\n\n    for k in range(2):\n        t = 0.5 + 0.5 * math.sin(v.lt * 3.2 + k * math.pi)\n        x, y = bz(t)\n        v.circle(x, y, 13, color=\"white\", alpha=160)\n        v.circle(x, y, 7, color=\"yellow_stage\")\n    v.concentric_waves(px, py, min_r=65, max_r=110, count=2, color=\"blue_tear\", width=4)",
+      "beat_07": "def beat_07(v):\n    base = 150\n\n    def g(x, cx, s=85.0):\n        return math.exp(-((x - cx) ** 2) / (2.0 * s * s))\n\n    def curve(cx, h):\n        pts = [(-300, base)]\n        for x in range(-300, 301, 12):\n            pts.append((x, base - h * g(x, cx)))\n        pts.append((300, base))\n        return pts\n\n    ax = v.ease(0.0, 0.6)\n    # graph axes drawing themselves\n    v.line(-320, base, 330, base, width=8, color=\"dark\", progress=ax)\n    v.line(-320, base, -320, -210, width=8, color=\"dark\", progress=v.ease(0.15, 0.5))\n    for i in range(1, 6):\n        tx = -320 + i * 110\n        v.line(tx, base, tx, base + 14, width=5, color=\"dark\", alpha=int(255 * ax))\n\n    wob = v.wave(freq=3.0, amp=10.0) * max(0.0, 1.0 - v.lt / 3.0)\n    hb = 250 * v.spring(0.5, 0.6) + wob * v.ease(0.5, 0.3)\n    sp = v.spring(1.0, 0.6)\n    hp = 245 * sp - wob * sp\n    cb = -12\n    cp = 180 - 165 * v.ease(1.3, 1.0)\n\n    if hb > 2:\n        v.poly(curve(cb, hb), color=\"blue_tear\", alpha=140)\n    if hp > 2:\n        v.poly(curve(cp, hp), color=\"pink_organ\", alpha=140)\n    if hb > 2 and hp > 2:\n        ov = [(-300, base)]\n        for x in range(-300, 301, 12):\n            ov.append((x, base - min(hb * g(x, cb), hp * g(x, cp))))\n        ov.append((300, base))\n        v.poly(ov, color=\"purple\", alpha=int(210 * v.ease(1.5, 0.8)))\n\n    if hb > 2:\n        v.circle(cb, base - hb, 10, color=\"blue_tear\")\n        v.label_pill(cb - 140, base - hb + 20, text=\"PRIA\", bg=\"blue_tear\", fg=\"white\", size=26, pointer=False, delay=0.7)\n    if hp > 2:\n        v.circle(cp, base - hp, 10, color=\"pink_organ\")\n        v.label_pill(cp + 150, base - hp + 20, text=\"WANITA\", bg=\"pink_organ\", fg=\"white\", size=26, pointer=False, delay=1.2)\n    v.label_pill(0, base + 55, text=\"HAMPIR SAMA\", bg=\"purple\", fg=\"white\", size=28, pointer=False, delay=2.1)",
+      "beat_08": "def beat_08(v):\n    def rnd(i):\n        return (math.sin(i * 12.9898 + 3.1) * 43758.5453) % 1.0\n\n    def bell(cx, h, s, base):\n        pts = [(-330, base)]\n        for x in range(-330, 331, 15):\n            pts.append((x, base - h * math.exp(-((x - cx) ** 2) / (2.0 * s * s))))\n        pts.append((330, base))\n        return pts\n\n    k = v.ease(2.4, 0.8)\n    ca = int(255 * (1 - k))\n    if ca > 5:\n        # close-up: ruler + two peaks + caliper\n        v.poly(bell(-14, 200, 200, 166), color=\"blue_tear\", alpha=min(ca, 130))\n        v.poly(bell(14, 200, 200, 166), color=\"pink_organ\", alpha=min(ca, 130))\n        v.rect(0, 200, 640, 70, radius=10, color=\"yellow_stage\", alpha=ca)\n        for i in range(-14, 15):\n            tx = i * 22\n            hh = 30 if i % 5 == 0 else 16\n            v.line(tx, 166, tx, 166 + hh, width=4, color=\"dark\", alpha=ca)\n        v.line(-14, -34, -14, 166, width=5, color=\"blue_tear\", alpha=ca, dashed=True)\n        v.line(14, -34, 14, 166, width=5, color=\"pink_organ\", alpha=ca, dashed=True)\n        jx = 14 + 100 * (1 - v.spring(0.5, 0.7))\n        v.rect(0, -78, jx * 2 + 50, 18, radius=6, color=\"stone_dark\", alpha=ca)\n        v.rect(-jx - 5, -52, 10, 52, radius=3, color=\"stone\", alpha=ca)\n        v.rect(jx + 5, -52, 10, 52, radius=3, color=\"stone\", alpha=ca)\n        v.label_pill(0, -130, text=\"kecil\", bg=\"white\", fg=\"red_hot\", size=32, pointer=True, delay=1.2)\n\n    if k > 0.02:\n        wa = int(255 * k)\n        base = 150\n        v.poly(bell(-8, 150, 80, base), color=\"blue_tear\", alpha=int(140 * k))\n        v.poly(bell(8, 150, 80, base), color=\"pink_organ\", alpha=int(140 * k))\n        v.line(-340, base, 340, base, width=6, color=\"dark\", alpha=wa)\n        if k > 0.5:\n            v.arrow(0, -45, -340, -45, width=12, color=\"dark\", delay=2.9)\n            v.arrow(0, -45, 340, -45, width=12, color=\"dark\", delay=2.9)\n        cols = [\"blue_tear\", \"pink_organ\", \"purple\", \"white\", \"dark\"]\n        for i in range(36):\n            x = -320 + 640 * ((i + 0.5) / 36.0) + (rnd(i + 50) - 0.5) * 14\n            e = v.spring(3.0 + rnd(i + 9) * 1.2, 0.5)\n            y = base + 28 + (rnd(i + 77) - 0.5) * 22\n            v.circle(x * e, y, 9, color=cols[i % 5], alpha=wa)\n        v.label_pill(0, -95, text=\"SEBARAN INDIVIDU\", bg=\"white\", fg=\"red_hot\", size=28, pointer=False, delay=3.3)",
+      "beat_09": "def beat_09(v):\n    period = 0.7\n    t = max(0.0, v.lt - 0.3)\n    n = int(t / period)\n    f = (t % period) / period\n    s = 0.5 - 0.5 * math.cos(2 * math.pi * f)\n    pop = v.spring(0.0, 0.5)\n\n    # scanner\n    v.rect(40, 185, 300, 40, radius=14, color=\"stone\", delay=0.0)\n    v.circle(40, 40, 150 * pop, color=\"white\")\n    v.circle(40, 40, 128 * pop, color=\"grey\", alpha=90)\n    v.circle(40, 40, 72 * pop, color=\"dark\")\n    # bed and patient\n    bx = 40 + 200 - 170 * s\n    v.rect(270, 125, 22, 110, radius=8, color=\"stone_dark\")\n    v.rect(bx, 62, 230, 20, radius=10, color=\"blue_soft\")\n    v.ellipse(bx + 10, 45, 150, 30, color=\"mint_soft\")\n    v.circle(bx - 80, 42, 18, color=\"skin\")\n\n    # stack of scan cards\n    cnt = min(n, 9)\n    for i in range(cnt):\n        cy = 210 - i * 13\n        v.rect(-270, cy, 110, 70, radius=10, color=\"stone\")\n        v.ellipse(-270, cy, 60, 40, color=\"grey\")\n    # flying card\n    if v.lt > 0.3 and f > 0.5:\n        q = (f - 0.5) / 0.5\n        tx, ty = -270, 210 - cnt * 13\n        fx = 40 + (tx - 40) * q\n        fy = 40 + (ty - 40) * q - 130 * math.sin(math.pi * q)\n        v.rect(fx, fy, 110, 70, radius=10, color=\"stone\", angle=-30 * q)\n        v.ellipse(fx, fy, 60, 40, color=\"grey\")\n\n    # counter\n    e = v.ease(0.3, 4.5)\n    num = int(1000 * e)\n    txt = \"1000+\" if e >= 0.999 else str(num)\n    v.rect(40, -205, 260, 86, radius=18, color=\"dark\")\n    v.label_pill(40, -205, text=txt, bg=\"dark\", fg=\"mint_soft\", size=44, pointer=False, delay=0.0)\n\n    # swaying tag\n    sw = v.wave(freq=1.2, amp=14.0)\n    v.circle(-60, -85, 8, color=\"red_hot\")\n    v.line(-60, -85, -130 + sw, -30, width=4, color=\"dark\")\n    v.label_pill(-150 + sw, -10, text=\"TEL AVIV 2015\", bg=\"white\", fg=\"red_hot\", size=22, pointer=False, delay=0.4)",
+      "beat_10": "def beat_10(v):\n    def rnd(i):\n        return (math.sin(i * 12.9898 + 7.3) * 43758.5453) % 1.0\n\n    def hexpts(x, y, r, fx):\n        pts = []\n        for k in range(6):\n            a = math.radians(30 + 60 * k)\n            pts.append((x + r * fx * math.cos(a), y + r * math.sin(a)))\n        return pts\n\n    cx, cy = 0, -100\n    # brainstem + cerebellum + outline\n    v.rect(80, 70, 50, 100, radius=20, color=\"stone_dark\", delay=0.0)\n    v.ellipse(150, 30, 130, 80, color=\"stone\", delay=0.0)\n    v.ellipse(cx, cy, 500, 340, color=\"dark\", delay=0.0)\n    v.ellipse(cx, cy, 478, 318, color=\"cream\", delay=0.0)\n\n    cols = [\"blue_tear\", \"pink_organ\", \"purple\"]\n    r = 20.0\n    dxs = 35.0\n    dys = 30.0\n    idx = 0\n    for row in range(-5, 6):\n        y = cy + row * dys\n        off = dxs / 2 if row % 2 else 0\n        for col in range(-7, 8):\n            x = col * dxs + off\n            if ((x - cx) / 220.0) ** 2 + ((y - cy) / 146.0) ** 2 > 1.0:\n                continue\n            idx += 1\n            d = 0.2 + rnd(idx) * 2.6\n            sc = v.spring(d, 0.4)\n            if sc <= 0.02:\n                continue\n            ph = rnd(idx + 31) * 6.28\n            cyc = v.lt * 1.3 + ph\n            flip = 1 - 0.9 * max(0.0, math.sin(cyc)) ** 8\n            ci = (int(rnd(idx + 5) * 3) + int(cyc / 6.283)) % 3\n            v.poly(hexpts(x, y, 18 * sc, flip), color=cols[ci], alpha=230)\n            sh = v.wave(freq=1.5, amp=1.0, phase=ph)\n            if sh > 0.8:\n                v.circle(x - 5, y - 6, 4, color=\"white\", alpha=200)\n\n    # fissures\n    v.bezier([(-60, -250), (-20, -170), (-80, -120), (-30, -40)], width=8, color=\"dark\", alpha=160)\n    v.bezier([(-200, -90), (-120, -70), (-40, -100), (60, -80)], width=6, color=\"dark\", alpha=120)\n    v.label_pill(250, -230, text=\"MOSAIK\", bg=\"purple\", fg=\"white\", size=28, pointer=False, delay=2.6)",
+      "beat_11": "def beat_11(v):\n    k = v.ease(2.2, 0.5)\n    k2 = v.ease(2.3, 0.9)\n\n    def box(x, body, lid):\n        w = 170 + 90 * k\n        H = 120 * (1 - k) + 16\n        top = 250 - H\n        v.rect(x, 250 - H / 2, w, H, radius=8, color=body)\n        v.line(x - w / 2 + 10, top + 6, x + w / 2 - 10, top + 6, width=4, color=\"dark\", alpha=int(80 * (1 - k)))\n        th = (1.9 + 0.4 * math.sin(v.lt * 7 + x)) * (1 - k) + math.pi * k\n        xl = x - w / 2\n        xr = x + w / 2\n        v.line(xl, top, xl + 85 * math.cos(th), top - 85 * math.sin(th), width=14, color=lid)\n        v.line(xr, top, xr - 85 * math.cos(th), top - 85 * math.sin(th), width=14, color=lid)\n\n    box(-190, \"blue_tear\", \"blue_soft\")\n    box(190, \"pink_organ\", \"pink_soft\")\n\n    # dust puffs\n    if k2 > 0.01:\n        for j in range(8):\n            a = j * 0.8\n            px = (-190 if j % 2 == 0 else 190) + math.cos(a) * (60 + 70 * k2)\n            py = 245 - abs(math.sin(a)) * 40 * k2\n            v.circle(px, py, 12 + 26 * k2, color=\"grey\", alpha=int(200 * (1 - k2)))\n\n    # hopping mosaic brain\n    if v.lt < 2.2:\n        bx = -190 * math.sin(v.lt * 2.86)\n        by = 60 - abs(math.sin(v.lt * 5.72)) * 110\n        near = abs(bx) / 190.0\n    else:\n        bx = 0\n        by = 20 + v.wave(freq=2.0, amp=8.0)\n        near = 0.0\n    shake = 7 * math.sin(v.lt * 30) * near\n    v.ellipse(bx, by, 140, 105, color=\"purple\")\n    mc = [\"blue_tear\", \"pink_organ\", \"blue_soft\", \"pink_soft\", \"purple\"]\n    for i in range(6):\n        v.circle(bx - 40 + (i % 3) * 40, by - 20 + (i // 3) * 34, 15, color=mc[i % 5])\n    v.circle(bx - 20 + shake, by - 5, 12, color=\"white\")\n    v.circle(bx + 20 + shake, by - 5, 12, color=\"white\")\n    v.circle(bx - 20 + shake * 1.4, by - 3, 5, color=\"dark\")\n    v.circle(bx + 20 + shake * 1.4, by - 3, 5, color=\"dark\")",
+      "beat_12": "def beat_12(v):\n    sp = v.spring(0.2, 0.9)\n    bx = -62 - 330 * (1 - sp)\n    ox = 62 + 330 * (1 - sp)\n    py = -10\n    g = v.ease(1.2, 0.5)\n    if g > 0.01:\n        v.circle(0, py, 175 * v.pulse(freq=2.0, lo=0.95, hi=1.05), color=\"yellow_stage\", alpha=int(130 * g))\n\n    # orange heart piece\n    v.rect(ox, py, 124, 124, radius=14, color=\"orange_bg\")\n    v.circle(ox, py - 70, 22, color=\"orange_bg\")\n    hx = ox + 8\n    v.circle(hx - 13, py - 10, 15, color=\"white\")\n    v.circle(hx + 13, py - 10, 15, color=\"white\")\n    v.poly([(hx - 28, py - 4), (hx + 28, py - 4), (hx, py + 28)], color=\"white\")\n\n    # blue gear piece (tab overlaps into orange)\n    v.rect(bx, py, 124, 124, radius=14, color=\"blue_tear\")\n    v.circle(bx + 64, py, 24, color=\"blue_tear\")\n    gx = bx - 6\n    rot = v.lt * 60\n    for i in range(8):\n        a = math.radians(rot + i * 45)\n        v.rect(gx + 30 * math.cos(a), py + 30 * math.sin(a), 16, 16, radius=3, color=\"white\", angle=rot + i * 45)\n    v.circle(gx, py, 28, color=\"white\")\n    v.circle(gx, py, 11, color=\"blue_tear\")\n\n    # diverse people row\n    people = [(-300, 0.95, \"stone_dark\", \"elder\"), (-200, 1.0, \"dark\", \"man\"), (-110, 0.62, \"brown\", \"kid\"),\n              (-20, 0.95, \"purple\", \"woman\"), (80, 1.0, \"brown\", \"man\"), (170, 0.65, \"dark\", \"kid\"),\n              (270, 0.92, \"stone_dark\", \"woman\")]\n    for i, (x, s, c, kind) in enumerate(people):\n        e = v.spring(2.0 + 0.15 * i, 0.5)\n        drop = 60 * (1 - e)\n        top = 260 - 100 * s + drop\n        if kind == \"woman\":\n            v.poly([(x - 34 * s, 260 + drop), (x + 34 * s, 260 + drop), (x, top)], color=c)\n        else:\n            v.rect(x, 260 - 50 * s + drop, 56 * s, 100 * s, radius=int(20 * s), color=c)\n        v.circle(x, top - 26 * s, 22 * s, color=c)\n        if kind == \"elder\":\n            v.line(x + 40, top + 20, x + 46, 262, width=6, color=\"brown\")\n        lit = v.ease(3.0 + 0.2 * i, 0.4)\n        if lit > 0.01:\n            cyc = top + 40 * s\n            v.circle(x, cyc, 20 * s * v.pulse(freq=2.5), color=\"yellow_stage\", alpha=int(220 * lit))\n            v.rect(x - 7 * s, cyc, 14 * s, 18 * s, radius=3, color=\"blue_tear\", alpha=int(255 * lit))\n            v.rect(x + 7 * s, cyc, 14 * s, 18 * s, radius=3, color=\"orange_bg\", alpha=int(255 * lit))"
     }
-  ]
+  }
 }

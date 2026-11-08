@@ -1,6 +1,7 @@
 import os
 import re
 import sys
+import ast
 import json
 import math
 import time
@@ -8,12 +9,17 @@ import wave
 import queue
 import shutil
 import asyncio
+import hashlib
 import logging
 import threading
 import subprocess
 import traceback
+import multiprocessing
 import urllib.request
 import urllib.error
+import webbrowser
+from concurrent.futures import ThreadPoolExecutor
+from functools import lru_cache
 from pathlib import Path
 from typing import List, Dict, Optional, Tuple, Any
 
@@ -33,7 +39,52 @@ LOG_FILE = "nalarka_debug.log"
 FFMPEG_LOG_FILE = "ffmpeg_render.log"
 DEFAULT_REF_LIBRARY_DIR = "references_library"
 FPS = 30
-MAX_DURATION = 60
+MAX_DURATION = 60            # "Standard" cap from the Nalarka spec (default)
+MIN_DURATION_CAP = 15        # lowest cap the UI accepts
+HARD_MAX_DURATION = 900      # absolute ceiling for Extended / long-video mode
+DEFAULT_MAX_DURATION = MAX_DURATION
+DURATION_PRESETS = ["60", "90", "120", "180", "300", "600"]
+
+SPEECH_WORDS_PER_SEC = 2.5   # spoken pace used for all duration estimates
+INTRO_OUTRO_SECONDS = 2.5    # ~1.0s lead-in + ~1.5s tail (spec: voiceover + 2.5s, rounded up)
+MIN_BEAT_SECONDS = 1.2       # shortest beat the storyboard sanitiser will keep
+PASS1_WINDOW_SECONDS = 90.0  # storyboard is planned in windows of this length
+PASS2_BATCH_BEATS = 6        # beats of Python code requested per LLM call
+PASS2_PARALLEL_CALLS = 3     # concurrent code-generation calls
+EL_CHUNK_CHARS = 4500        # ElevenLabs text per request (keeps well under the 10k model limit)
+
+# --- AI providers ---------------------------------------------------------
+PROVIDER_CUSTOM = "custom"
+PROVIDER_OPENROUTER = "openrouter"
+PROVIDER_LABELS = {
+    PROVIDER_CUSTOM: "Custom OpenAI-compatible (oao.ai.id)",
+    PROVIDER_OPENROUTER: "OpenRouter",
+}
+PROVIDER_DEFAULT_BASE_URL = {
+    PROVIDER_CUSTOM: "https://oao.ai.id/v1",
+    PROVIDER_OPENROUTER: "https://openrouter.ai/api/v1",
+}
+OPENROUTER_MODELS_URL = "https://openrouter.ai/api/v1/models"
+
+# Starting points only. Use "Fetch OpenRouter Models" to load the live catalogue
+# (model slugs on OpenRouter change over time and this list is not verified live).
+OPENROUTER_VISUAL_CODER_MODELS = [
+    "anthropic/claude-opus-5.5",
+    "anthropic/claude-sonnet-5.5",
+    "deepseek/deepseek-chat",
+    "moonshotai/kimi-k2",
+    "qwen/qwen3-coder",
+    "google/gemini-2.5-pro",
+    "openai/gpt-5",
+]
+
+OPENROUTER_SCRIPT_MODELS = [
+    "anthropic/claude-sonnet-5.5",
+    "anthropic/claude-haiku-5.5",
+    "deepseek/deepseek-chat",
+    "google/gemini-2.5-flash",
+    "openai/gpt-5-mini",
+]
 
 OAO_VISUAL_CODER_MODELS = [
     "claude-fable-5",
@@ -72,6 +123,9 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(message)s",
     encoding="utf-8"
 )
+# The HTTP stack logs every request at DEBUG; that floods the log file and can echo request details.
+for _noisy in ("openai", "httpx", "httpcore", "PIL", "asyncio"):
+    logging.getLogger(_noisy).setLevel(logging.WARNING)
 
 
 # ==========================================
@@ -162,7 +216,7 @@ def format_sections_to_tagged_text(script_data: dict) -> str:
     if hook:
         blocks.append(f"[Hook] {hook}")
 
-    for i in range(1, 6):
+    for i in range(1, 13):
         val = str(script_data.get(f"inti_{i}") or script_data.get(f"point_{i}") or "").strip()
         if val:
             blocks.append(f"[Inti {i}] {val}")
@@ -210,6 +264,12 @@ def prepare_text_for_elevenlabs(raw_editor_text: str, add_ssml_breaks: bool = Fa
     return clean_tts_text
 
 
+def script_fingerprint(raw_editor_text: str) -> str:
+    """Stable hash of the spoken text (tags/whitespace ignored) used to match a voiceover file to its script."""
+    clean, _ = parse_tagged_script(raw_editor_text)
+    return hashlib.sha1(re.sub(r"\s+", " ", clean).strip().encode("utf-8")).hexdigest()
+
+
 # ==========================================
 # HELPER: SAFE JSON & PYTHON CODE EXTRACTORS
 # ==========================================
@@ -254,6 +314,176 @@ def extract_python_code_safely(raw_text: str) -> str:
     return cleaned.strip()
 
 
+# ==========================================
+# AI CLIENT (OpenAI-compatible: custom endpoint + OpenRouter)
+# ==========================================
+def is_openrouter(base_url: str) -> bool:
+    return "openrouter.ai" in (base_url or "").lower()
+
+
+def make_client(base_url: str, api_key: str, timeout: float = 300.0, max_retries: int = 3) -> OpenAI:
+    """Builds an OpenAI-SDK client. OpenRouter gets its optional attribution headers automatically."""
+    key = (api_key or "").strip()
+    if not key:   # lets users keep keys out of config_nalarka.json
+        key = os.environ.get("OPENROUTER_API_KEY" if is_openrouter(base_url) else "NALARKA_API_KEY", "").strip()
+    if not key:
+        raise ValueError(
+            "API key is empty. Enter the key for the selected provider in Section 1 "
+            f"(or set the {'OPENROUTER_API_KEY' if is_openrouter(base_url) else 'NALARKA_API_KEY'} environment variable)."
+        )
+    kwargs: Dict[str, Any] = {}
+    if is_openrouter(base_url):
+        kwargs["default_headers"] = {
+            "HTTP-Referer": "http://localhost",
+            "X-Title": "Nalarka Motion Graphics Studio",
+        }
+    return OpenAI(
+        base_url=base_url.strip(),
+        api_key=key,
+        timeout=timeout,
+        max_retries=max_retries,
+        **kwargs,
+    )
+
+
+def fetch_openrouter_models(api_key: str, log_fn) -> List[Dict[str, Any]]:
+    """Loads the live OpenRouter catalogue (the endpoint is public; the key is sent only if present)."""
+    headers = {"Accept": "application/json"}
+    if api_key and api_key.strip():
+        headers["Authorization"] = f"Bearer {api_key.strip()}"
+    req = urllib.request.Request(OPENROUTER_MODELS_URL, headers=headers, method="GET")
+    log_fn("[OPENROUTER] Fetching model catalogue from GET /api/v1/models ...")
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        data = json.loads(resp.read().decode("utf-8"))
+
+    models: List[Dict[str, Any]] = []
+    for m in data.get("data", []):
+        mid = m.get("id")
+        if not mid:
+            continue
+        pricing = m.get("pricing") or {}
+        free = str(pricing.get("prompt", "1")) in ("0", "0.0") and str(pricing.get("completion", "1")) in ("0", "0.0")
+        models.append({"id": mid, "name": m.get("name", mid), "context": m.get("context_length"), "free": free})
+    models.sort(key=lambda x: x["id"])
+    return models
+
+
+def friendly_api_error(err: Exception, base_url: str) -> str:
+    """One-line, actionable explanation for the HTTP errors people actually hit (OpenRouter included)."""
+    code = getattr(err, "status_code", None)
+    host = "OpenRouter" if is_openrouter(base_url) else "the API endpoint"
+    hints = {
+        400: "the request was rejected (bad parameter or model id). Check the model name.",
+        401: f"{host} rejected the API key. Re-check it in Section 1.",
+        402: f"{host} reports insufficient credits. Add credits or pick a ':free' / cheaper model.",
+        403: "the key or account is not allowed to use this model (or the request was moderated).",
+        404: "model not found / no provider is serving it. Use 'Fetch OpenRouter Models' to get a valid id." if is_openrouter(base_url)
+             else "model or endpoint not found. Check the Base URL and model name.",
+        408: "the request timed out. Try again or choose a faster model.",
+        429: "rate limited. Wait a moment, or use a paid model (free models have tight limits).",
+        502: "the upstream model provider failed. Retry, or choose another model.",
+        503: "no provider is available for this model right now. Retry later or choose another model.",
+    }
+    base = f"{type(err).__name__}: {err}"
+    return f"{base}  ->  {hints[code]}" if code in hints else base
+
+
+def _chat_text(
+    base_url: str,
+    api_key: str,
+    model: str,
+    system_prompt: str,
+    user_prompt: str,
+    log_fn,
+    tag: str,
+    temperature: Optional[float] = 0.40,
+    timeout: float = 300.0,
+    max_tokens: Optional[int] = None,
+    min_chars: int = 30,
+) -> Tuple[str, Optional[str]]:
+    """
+    One chat completion, streamed first with a non-streaming fallback.
+    Returns (text, finish_reason). The fallback now also triggers when the stream died half-way
+    (the old code silently accepted a truncated partial response as complete).
+    Parameters some models reject (temperature, max_tokens) are dropped automatically on a 400.
+    """
+    client = make_client(base_url, api_key, timeout=timeout)
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_prompt},
+    ]
+    dropped = set()
+
+    def _create(stream: bool, temp: Optional[float]):
+        for _ in range(3):
+            kw: Dict[str, Any] = {"model": model.strip(), "messages": messages, "stream": stream}
+            if temp is not None and "temperature" not in dropped:
+                kw["temperature"] = temp
+            if max_tokens and "max_tokens" not in dropped:
+                kw["max_tokens"] = max_tokens
+            try:
+                return client.chat.completions.create(**kw)
+            except Exception as err:
+                msg = str(err).lower()
+                if "temperature" in msg and "temperature" not in dropped:
+                    dropped.add("temperature")
+                    log_fn(f"[{tag} WARN] '{model}' rejected 'temperature'; retrying without it.")
+                    continue
+                if ("max_tokens" in msg or "max_completion_tokens" in msg) and "max_tokens" not in dropped:
+                    dropped.add("max_tokens")
+                    log_fn(f"[{tag} WARN] '{model}' rejected 'max_tokens'; retrying without it.")
+                    continue
+                explained = friendly_api_error(err, base_url)
+                log_fn(f"[{tag} ERROR] {explained}")
+                raise RuntimeError(explained) from err
+        raise RuntimeError("Chat completion kept failing after parameter fallbacks.")
+
+    log_fn(f"[{tag}] Calling {base_url.strip()} | model={model.strip()} (streaming)")
+    t0 = time.time()
+    chunks: List[str] = []
+    finish: Optional[str] = None
+    stream_err: Optional[Exception] = None
+    try:
+        stream = _create(True, temperature)
+        for chunk in stream:
+            # OpenRouter (and some gateways) report a failure AFTER the HTTP 200 was sent: a final chunk with a
+            # top-level `error` and finish_reason == "error". Treat that as a failed stream, never as a short answer.
+            chunk_err = getattr(chunk, "error", None)
+            if chunk_err:
+                raise RuntimeError(f"provider error mid-stream: {chunk_err}")
+            choices = getattr(chunk, "choices", None)
+            if not choices:
+                continue
+            choice = choices[0]
+            content = getattr(getattr(choice, "delta", None), "content", None)
+            if content:
+                chunks.append(content)
+            fr = getattr(choice, "finish_reason", None)
+            if fr == "error":
+                raise RuntimeError("provider ended the stream with finish_reason='error'")
+            if fr:
+                finish = fr
+    except Exception as err:
+        stream_err = err
+        log_fn(f"[{tag} WARN] Stream from '{model}' failed ({err}). Falling back to non-streaming...")
+
+    raw = "".join(chunks).strip()
+    if stream_err is not None or len(raw) < min_chars:
+        if stream_err is None:
+            log_fn(f"[{tag} WARN] Response from '{model}' was empty/too short. Retrying with stream=False...")
+        resp = _create(False, 0.2 if temperature is not None else None)
+        if not getattr(resp, "choices", None):
+            raise RuntimeError(f"'{model}' returned no choices ({getattr(resp, 'error', None) or 'empty response'}).")
+        choice = resp.choices[0]
+        raw = (getattr(choice.message, "content", "") or "").strip()
+        finish = getattr(choice, "finish_reason", None)
+        if finish == "error":
+            raise RuntimeError(f"'{model}' finished with finish_reason='error' ({getattr(resp, 'error', None) or 'no detail'}).")
+
+    log_fn(f"[{tag}] Received {len(raw)} chars from '{model}' in {round(time.time() - t0, 2)}s (finish={finish}).")
+    return raw, finish
+
+
 def call_ai_json(
     base_url: str,
     api_key: str,
@@ -261,52 +491,29 @@ def call_ai_json(
     system_prompt: str,
     user_prompt: str,
     log_fn,
-    temperature: float = 0.40
+    temperature: float = 0.40,
+    max_tokens: Optional[int] = None,
+    attempts: int = 2,
 ) -> dict:
-    log_fn(f"[AI JSON] Calling endpoint (streaming): {base_url} | Model: {model}")
-    client = OpenAI(base_url=base_url.strip(), api_key=api_key.strip(), timeout=300.0, max_retries=1)
-    t0 = time.time()
-
-    chunks = []
-    try:
-        stream = client.chat.completions.create(
-            model=model.strip(),
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
-            temperature=temperature,
-            stream=True,
+    last_err: Optional[Exception] = None
+    prompt = user_prompt
+    for attempt in range(1, attempts + 1):
+        raw, finish = _chat_text(
+            base_url, api_key, model, system_prompt, prompt, log_fn, "AI JSON",
+            temperature=temperature if attempt == 1 else 0.2,
+            timeout=300.0, max_tokens=max_tokens,
         )
-        for chunk in stream:
-            if getattr(chunk, "choices", None):
-                delta = chunk.choices[0].delta
-                content = getattr(delta, "content", None)
-                if content:
-                    chunks.append(content)
-    except Exception as stream_err:
-        log_fn(f"[AI JSON WARN] Streaming interrupted from '{model}' ({stream_err}). Attempting non-streaming fallback...")
-
-    raw_content = "".join(chunks).strip()
-
-    # Fallback to non-streaming if stream failed or returned empty/insufficient content
-    if not raw_content or len(raw_content) < 30:
-        log_fn(f"[AI JSON WARN] Response empty/truncated. Retrying '{model}' with stream=False...")
-        resp_retry = client.chat.completions.create(
-            model=model.strip(),
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
-            temperature=0.2,
-            stream=False,
-        )
-        raw_content = getattr(resp_retry.choices[0].message, "content", "") or ""
-
-    elapsed = round(time.time() - t0, 2)
-    log_fn(f"[AI JSON] Content received from '{model}' in {elapsed}s ({len(raw_content)} chars).")
-    logging.debug(f"RAW AI JSON ({model}):\n{raw_content}")
-    return extract_json_safely(raw_content, log_fn)
+        logging.debug(f"RAW AI JSON ({model}) attempt {attempt}:\n{raw}")
+        if finish == "length":
+            log_fn(f"[AI JSON WARN] '{model}' hit its output limit (finish_reason=length); JSON is probably cut off.")
+        try:
+            return extract_json_safely(raw, log_fn)
+        except ValueError as err:
+            last_err = err
+            if attempt < attempts:
+                log_fn(f"[AI JSON WARN] Attempt {attempt} unusable ({err}). Retrying once with a stricter reminder...")
+                prompt = user_prompt + "\n\nIMPORTANT: reply with ONE complete, valid JSON object only. No prose, no markdown."
+    raise ValueError(f"AI did not return usable JSON after {attempts} attempt(s): {last_err}")
 
 
 def call_ai_python_code(
@@ -316,94 +523,149 @@ def call_ai_python_code(
     system_prompt: str,
     user_prompt: str,
     log_fn,
-    temperature: float = 0.35
+    temperature: float = 0.35,
+    max_tokens: Optional[int] = 16000,
 ) -> str:
-    log_fn(f"[AI CODE] Streaming Pure Python Flat-Vector Code via '{model}'...")
-    client = OpenAI(base_url=base_url.strip(), api_key=api_key.strip(), timeout=360.0, max_retries=1)
-    t0 = time.time()
-
-    chunks = []
-    try:
-        stream = client.chat.completions.create(
-            model=model.strip(),
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
-            temperature=temperature,
-            stream=True,
+    raw, finish = _chat_text(
+        base_url, api_key, model, system_prompt, user_prompt, log_fn, "AI CODE",
+        temperature=temperature, timeout=420.0, max_tokens=max_tokens, min_chars=50,
+    )
+    if finish == "length":
+        log_fn(
+            f"[AI CODE WARN] '{model}' hit its output limit. Complete functions are kept; "
+            "cut-off ones are regenerated by the audit loop."
         )
-        for chunk in stream:
-            if getattr(chunk, "choices", None):
-                delta = chunk.choices[0].delta
-                content = getattr(delta, "content", None)
-                if content:
-                    chunks.append(content)
-    except Exception as stream_err:
-        log_fn(f"[AI CODE WARN] Streaming interrupted from '{model}' ({stream_err}). Attempting non-streaming fallback...")
+    return extract_python_code_safely(raw)
 
-    raw_content = "".join(chunks).strip()
-    
-    # Fallback jika model masih memulangkan respons kosong
-    if not raw_content or len(raw_content) < 50:
-        log_fn(f"[AI CODE WARN] Model '{model}' returned empty/too short response. Retrying with stream=False...")
-        resp_retry = client.chat.completions.create(
-            model=model.strip(),
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
-            temperature=0.2,
-            stream=False,
-        )
-        raw_content = getattr(resp_retry.choices[0].message, "content", "") or ""
-
-    elapsed = round(time.time() - t0, 2)
-    log_fn(f"[AI CODE] Pure Python Vector Module received in {elapsed}s ({len(raw_content)} chars).")
-    return extract_python_code_safely(raw_content)
 
 # ==========================================
-# STAGE 1: GENERATE STRUCTURED VOICEOVER SCRIPT
+# STAGE 1: GENERATE STRUCTURED VOICEOVER SCRIPT (duration-aware)
 # ==========================================
-def generate_script(base_url: str, api_key: str, model: str, topic: str, script_lang: str, log_fn) -> dict:
+def script_word_budget(max_duration: int) -> Tuple[int, int]:
+    """(min_words, max_words) of spoken script that fit inside `max_duration` seconds of video.
+    60s -> 75..125 words, matching the original 70-125 word guidance."""
+    hi = int((max_duration - 3) * 2.2)
+    lo = int(hi * 0.6)
+    return lo, hi
+
+
+def script_section_count(max_duration: int) -> int:
+    """Number of [Inti] sections. 60s -> 3 (original layout); longer videos get more."""
+    return max(3, min(12, int(round(max_duration / 20.0))))
+
+
+def estimate_video_seconds(word_count: int) -> Tuple[float, int]:
+    vo = word_count / SPEECH_WORDS_PER_SEC
+    return round(vo, 1), int(math.ceil(vo + INTRO_OUTRO_SECONDS))
+
+
+TTS_OVERSHOOT_TOLERANCE = 1.12   # the 2.5 words/s estimate is approximate; real voices run a little slower or faster
+
+
+def check_script_fits(raw_editor_text: str, max_duration: int, log_fn) -> int:
+    """
+    Run BEFORE paying for TTS. The old flow only discovered 'video too long' after the audio was synthesised
+    (spent ElevenLabs credits) and then hard-stopped. Returns the estimated video seconds; raises when the
+    script is clearly too long for the cap, warns when it is borderline.
+    """
+    clean, _ = parse_tagged_script(raw_editor_text)
+    words = len(clean.split())
+    est_vo, est_vid = estimate_video_seconds(words)
+    if est_vid > max_duration * TTS_OVERSHOOT_TOLERANCE:
+        raise ValueError(
+            f"Script is ~{words} words = ~{est_vid}s of video, over the {max_duration}s cap "
+            f"(tolerance {int(max_duration * TTS_OVERSHOOT_TOLERANCE)}s). Shorten it or raise 'Max video duration' "
+            "in Section 2A BEFORE generating audio (no TTS credits were used)."
+        )
+    if est_vid > max_duration:
+        log_fn(f"[SCRIPT WARN] Estimated {est_vid}s is slightly over the {max_duration}s cap; it may still fit once the real audio length is known.")
+    return est_vid
+
+
+def generate_script(
+    base_url: str,
+    api_key: str,
+    model: str,
+    topic: str,
+    script_lang: str,
+    log_fn,
+    max_duration: int = DEFAULT_MAX_DURATION,
+) -> dict:
+    is_id = "Indonesian" in script_lang
     lang_instruction = (
         "Tulis naskah voiceover dalam Bahasa Indonesia lisan yang natural, mengalir, dan kaya gambaran objek visual nyata."
-        if "Indonesian" in script_lang
+        if is_id
         else "Write the voiceover script in natural, vivid spoken English."
     )
+    lo, hi = script_word_budget(max_duration)
+    n_inti = script_section_count(max_duration)
+
+    inti_lines = [
+        "   - `inti_1`: Fakta utama atau mekanisme fisik/biologis/psikologis pertama secara konkret.",
+        "   - `inti_2`: Mekanisme kedua atau perbandingan dua jalur/faktor secara visual.",
+        "   - `inti_3`: Fakta penelitian atau paradoks menarik.",
+    ]
+    for i in range(4, n_inti + 1):
+        inti_lines.append(
+            f"   - `inti_{i}`: Fakta, contoh, atau mekanisme berikutnya yang konkret dan BERBEDA dari bagian sebelumnya, "
+            "dengan objek visual yang bisa digambar."
+        )
+    template_lines = ['  "hook": "..."'] + [f'  "inti_{i}": "..."' for i in range(1, n_inti + 1)] + ['  "penutup": "..."']
+    json_template = "{\n" + ",\n".join(template_lines) + "\n}"
+
     system_prompt = (
         "Kamu adalah penulis naskah motion graphics explainer senior bergaya Nalarka.\n"
         f"{lang_instruction}\n"
         "Aturan ketat:\n"
-        "1. Total panjang gabungan seluruh bagian WAJIB antara 70 hingga 125 kata (~2.5 kata/detik, maksimal total video <= 60 detik).\n"
-        "2. Bagi naskah menjadi 5 bagian yang jelas:\n"
+        f"1. Total panjang gabungan seluruh bagian WAJIB antara {lo} hingga {hi} kata "
+        f"(~{SPEECH_WORDS_PER_SEC} kata/detik, total video <= {max_duration} detik). Jangan menambah kalimat hanya demi mengisi durasi.\n"
+        f"2. Bagi naskah menjadi {n_inti + 2} bagian yang jelas:\n"
         "   - `hook`: Kalimat pembuka 3 detik pertama yang menyebutkan 2-3 reaksi/kejadian nyata lalu ditutup pertanyaan memikat.\n"
-        "   - `inti_1`: Fakta utama atau mekanisme fisik/biologis/psikologis pertama secara konkret.\n"
-        "   - `inti_2`: Mekanisme kedua atau perbandingan dua jalur/faktor secara visual.\n"
-        "   - `inti_3`: Fakta penelitian atau paradoks menarik.\n"
+        + "\n".join(inti_lines) + "\n"
         "   - `penutup`: Kesimpulan yang membalik cara pandang penonton dan kalimat penutup yang menancap di ingatan.\n"
-        "3. Kembalikan HANYA JSON valid dengan struktur persis ini:\n"
-        '{\n'
-        '  "hook": "...",\n'
-        '  "inti_1": "...",\n'
-        '  "inti_2": "...",\n'
-        '  "inti_3": "...",\n'
-        '  "penutup": "..."\n'
-        '}'
+        "3. Pakai kalimat pendek, bahasa lisan. Tulis angka, singkatan, dan istilah asing sedemikian rupa sehingga tidak salah dibaca mesin suara (TTS).\n"
+        "4. Jangan mengarang fakta, angka, atau hasil penelitian. Pakai klaim yang aman dan umum.\n"
+        "5. Kembalikan HANYA JSON valid dengan struktur persis ini:\n"
+        f"{json_template}"
     )
-    data = call_ai_json(base_url, api_key, model, system_prompt, f"Topik: {topic}", log_fn)
 
-    structured = {
-        "hook": str(data.get("hook") or "").strip(),
-        "inti_1": str(data.get("inti_1") or data.get("point_1") or "").strip(),
-        "inti_2": str(data.get("inti_2") or data.get("point_2") or "").strip(),
-        "inti_3": str(data.get("inti_3") or data.get("point_3") or "").strip(),
-        "penutup": str(data.get("penutup") or data.get("outro") or "").strip(),
-    }
+    def _structure(data: dict) -> dict:
+        s: Dict[str, Any] = {"hook": str(data.get("hook") or "").strip()}
+        for i in range(1, 13):
+            val = str(data.get(f"inti_{i}") or data.get(f"point_{i}") or "").strip()
+            if val:
+                s[f"inti_{i}"] = val
+        s["penutup"] = str(data.get("penutup") or data.get("outro") or "").strip()
+        return s
+
+    def _words(s: dict) -> int:
+        return len(parse_tagged_script(format_sections_to_tagged_text(s))[0].split())
+
+    data = call_ai_json(base_url, api_key, model, system_prompt, f"Topik: {topic}", log_fn)
+    structured = _structure(data)
+    words = _words(structured)
+
+    if words > int(hi * 1.1):
+        log_fn(f"[SCRIPT] {words} words exceeds the {hi}-word budget for {max_duration}s. Asking the model to shorten once...")
+        try:
+            retry_user = (
+                f"Topik: {topic}\n\nNaskah di bawah terlalu panjang ({words} kata). "
+                f"Persingkat menjadi MAKSIMAL {hi} kata total tanpa mengubah struktur bagian atau menghapus fakta kunci. "
+                f"Kembalikan JSON dengan struktur yang sama.\n\n{json.dumps(structured, ensure_ascii=False)}"
+            )
+            shorter = _structure(call_ai_json(base_url, api_key, model, system_prompt, retry_user, log_fn, temperature=0.3))
+            if 0 < _words(shorter) < words:
+                structured, words = shorter, _words(shorter)
+        except Exception as err:
+            log_fn(f"[SCRIPT WARN] Shorten retry failed ({err}); keeping the first draft.")
+    if words > hi:
+        log_fn(f"[SCRIPT WARN] Script is {words} words; budget is {hi}. Trim it in the editor before rendering if the cap is exceeded.")
+
     structured["tagged_text"] = format_sections_to_tagged_text(structured)
     clean_text, sections = parse_tagged_script(structured["tagged_text"])
     structured["clean_tts_text"] = clean_text
     structured["sections"] = sections
+    structured["word_budget"] = (lo, hi)
     return structured
 
 
@@ -434,6 +696,64 @@ def fetch_elevenlabs_voices(xi_api_key: str, log_fn) -> List[Dict[str, str]]:
         ]
 
 
+def split_text_for_tts(text: str, max_chars: int = EL_CHUNK_CHARS) -> List[str]:
+    """Splits script text into chunks <= max_chars on paragraph (then sentence, then word) boundaries."""
+    def _hard_split(piece: str) -> List[str]:
+        out, cur = [], ""
+        for w in piece.split():
+            if cur and len(cur) + 1 + len(w) > max_chars:
+                out.append(cur)
+                cur = w
+            else:
+                cur = f"{cur} {w}" if cur else w
+        if cur:
+            out.append(cur)
+        return out
+
+    chunks: List[str] = []
+    cur = ""
+    for para in [p.strip() for p in text.split("\n\n") if p.strip()]:
+        pieces = [para]
+        if len(para) > max_chars:
+            pieces = []
+            for sent in re.split(r"(?<=[.!?])\s+", para):
+                pieces.extend(_hard_split(sent) if len(sent) > max_chars else [sent])
+        for piece in pieces:
+            if cur and len(cur) + 2 + len(piece) > max_chars:
+                chunks.append(cur)
+                cur = piece
+            else:
+                cur = f"{cur}\n\n{piece}" if cur else piece
+    if cur:
+        chunks.append(cur)
+    return chunks
+
+
+def concat_audio_files(parts: List[str], output_path: str, log_fn):
+    list_path = output_path + ".concat.txt"
+    with open(list_path, "w", encoding="utf-8") as f:
+        for p in parts:
+            safe = os.path.abspath(p).replace("\\", "/").replace("'", "'\\''")
+            f.write(f"file '{safe}'\n")
+    cmd = [
+        "ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", list_path,
+        "-c:a", "libmp3lame", "-b:a", "128k", "-ar", "44100", output_path,
+    ]
+    res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    try:
+        os.remove(list_path)
+    except OSError:
+        pass
+    if res.returncode != 0:
+        raise RuntimeError(f"ffmpeg could not join the voiceover parts: {res.stderr[-600:]}")
+    for p in parts:
+        try:
+            os.remove(p)
+        except OSError:
+            pass
+    log_fn(f"[TTS] Joined {len(parts)} voiceover parts -> {output_path}")
+
+
 def generate_elevenlabs_tts(
     raw_editor_text: str,
     output_path: str,
@@ -445,7 +765,8 @@ def generate_elevenlabs_tts(
     style: float,
     use_speaker_boost: bool,
     add_ssml_breaks: bool,
-    log_fn
+    log_fn,
+    language_code: Optional[str] = "id",
 ):
     if not xi_api_key or not xi_api_key.strip():
         raise ValueError("ElevenLabs API Key is missing! Please enter your xi-api-key in Section 2B.")
@@ -458,40 +779,56 @@ def generate_elevenlabs_tts(
     if not cleaned_text:
         raise ValueError("Script text is empty after removing section tags.")
 
-    url = f"https://api.elevenlabs.io/v1/text-to-speech/{clean_voice_id}?output_format=mp3_44100_128"
-    payload = {
-        "text": cleaned_text,
-        "model_id": model_id.strip(),
-        "voice_settings": {
-            "stability": round(float(stability), 2),
-            "similarity_boost": round(float(similarity_boost), 2),
-            "style": round(float(style), 2),
-            "use_speaker_boost": bool(use_speaker_boost)
-        }
-    }
-    if any(k in model_id.lower() for k in ("flash", "turbo")):
-        payload["language_code"] = "id"
+    # Long scripts are sent in chunks (ElevenLabs caps characters per request) and joined with ffmpeg.
+    chunks = split_text_for_tts(cleaned_text)
+    multi = len(chunks) > 1
+    if multi:
+        log_fn(f"[ELEVENLABS] Long script ({len(cleaned_text)} chars) -> {len(chunks)} chunks.")
 
+    url = f"https://api.elevenlabs.io/v1/text-to-speech/{clean_voice_id}?output_format=mp3_44100_128"
     headers = {
         "xi-api-key": xi_api_key.strip(),
         "Content-Type": "application/json",
-        "Accept": "audio/mpeg"
+        "Accept": "audio/mpeg",
     }
-
-    req_bytes = json.dumps(payload, ensure_ascii=False).encode("utf-8")
-    req = urllib.request.Request(url, data=req_bytes, headers=headers, method="POST")
-
+    part_paths: List[str] = []
     t0 = time.time()
-    try:
-        with urllib.request.urlopen(req, timeout=60) as resp:
-            audio_bytes = resp.read()
-            with open(output_path, "wb") as f:
+    for idx, chunk in enumerate(chunks):
+        payload: Dict[str, Any] = {
+            "text": chunk,
+            "model_id": model_id.strip(),
+            "voice_settings": {
+                "stability": round(float(stability), 2),
+                "similarity_boost": round(float(similarity_boost), 2),
+                "style": round(float(style), 2),
+                "use_speaker_boost": bool(use_speaker_boost),
+            },
+        }
+        if language_code and any(k in model_id.lower() for k in ("flash", "turbo")):
+            payload["language_code"] = language_code
+        if multi:  # keeps intonation continuous across chunk boundaries
+            if idx > 0:
+                payload["previous_text"] = chunks[idx - 1][-300:]
+            if idx < len(chunks) - 1:
+                payload["next_text"] = chunks[idx + 1][:300]
+
+        target = f"{output_path}.part{idx:02d}.mp3" if multi else output_path
+        req = urllib.request.Request(url, data=json.dumps(payload, ensure_ascii=False).encode("utf-8"), headers=headers, method="POST")
+        try:
+            with urllib.request.urlopen(req, timeout=180) as resp:
+                audio_bytes = resp.read()
+            with open(target, "wb") as f:
                 f.write(audio_bytes)
-        log_fn(f"[ELEVENLABS SUCCESS] Saved {len(audio_bytes)} bytes to '{output_path}' in {round(time.time()-t0, 2)}s.")
-    except urllib.error.HTTPError as err:
-        err_body = err.read().decode("utf-8", errors="replace")
-        log_fn(f"[ELEVENLABS HTTP ERROR {err.code}] {err_body}")
-        raise RuntimeError(f"ElevenLabs TTS failed (HTTP {err.code}): {err_body}") from err
+            part_paths.append(target)
+            log_fn(f"[ELEVENLABS] Chunk {idx + 1}/{len(chunks)} saved ({len(audio_bytes)} bytes).")
+        except urllib.error.HTTPError as err:
+            err_body = err.read().decode("utf-8", errors="replace")
+            log_fn(f"[ELEVENLABS HTTP ERROR {err.code}] {err_body}")
+            raise RuntimeError(f"ElevenLabs TTS failed (HTTP {err.code}): {err_body}") from err
+
+    if multi:
+        concat_audio_files(part_paths, output_path, log_fn)
+    log_fn(f"[ELEVENLABS SUCCESS] Voiceover saved to '{output_path}' in {round(time.time() - t0, 2)}s.")
 
 
 async def _edge_tts_save(text: str, output_path: str, voice: str):
@@ -507,24 +844,37 @@ def generate_edge_tts_fallback(raw_editor_text: str, output_path: str, voice: st
     log_fn(f"[EDGE-TTS] Saved voiceover to: {output_path}")
 
 
+BGM_LOOP_SECONDS = 32
+
+
 def generate_synthetic_ambient_bgm(output_wav: str, duration_sec: int, bpm: int, log_fn) -> str:
+    """
+    Writes a seamless 32s ambient loop (every component completes whole cycles in the loop length).
+    The render pipeline loops it with `-stream_loop -1`, so memory use no longer grows with video length
+    (the old version allocated float64 arrays for the full duration: ~1.5 GB at 10 minutes).
+    `duration_sec` is kept for API compatibility.
+    """
     sr = 48000
-    total_samples = sr * (duration_sec + 2)
-    t = np.linspace(0, duration_sec + 2, total_samples, endpoint=False)
+    L = BGM_LOOP_SECONDS
+    t = np.arange(sr * L, dtype=np.float64) / sr
+
+    def q(f: float) -> float:  # snap to a whole number of cycles per loop
+        return max(1.0 / L, round(f * L) / L)
+
     freqs = [110.0, 164.81, 220.0, 261.63, 329.63, 392.00]
     amps = [0.22, 0.16, 0.18, 0.14, 0.10, 0.08]
     signal_l = np.zeros_like(t)
     signal_r = np.zeros_like(t)
 
     for idx, (f, a) in enumerate(zip(freqs, amps)):
-        mod = 1.0 + 0.15 * np.sin(2.0 * np.pi * (0.12 + idx * 0.04) * t)
+        mod = 1.0 + 0.15 * np.sin(2.0 * np.pi * q(0.12 + idx * 0.04) * t)
         detune = 1.002 if idx % 2 == 0 else 0.998
-        signal_l += a * mod * np.sin(2.0 * np.pi * f * t)
-        signal_r += a * mod * np.sin(2.0 * np.pi * (f * detune) * t + 0.4)
+        signal_l += a * mod * np.sin(2.0 * np.pi * q(f) * t)
+        signal_r += a * mod * np.sin(2.0 * np.pi * q(f * detune) * t + 0.4)
 
-    beat_freq = bpm / 60.0
+    beat_freq = q(bpm / 60.0)
     beat_env = np.power(0.5 * (1.0 + np.sin(2.0 * np.pi * beat_freq * t - np.pi / 2.0)), 4.0)
-    pulse = 0.15 * beat_env * np.sin(2.0 * np.pi * 82.41 * t)
+    pulse = 0.15 * beat_env * np.sin(2.0 * np.pi * q(82.41) * t)
     signal_l += pulse
     signal_r += pulse
 
@@ -537,6 +887,7 @@ def generate_synthetic_ambient_bgm(output_wav: str, duration_sec: int, bpm: int,
         wf.setsampwidth(2)
         wf.setframerate(sr)
         wf.writeframes(pcm16.tobytes())
+    log_fn(f"[BGM] Seamless {L}s ambient loop written to {output_wav} (looped to video length by ffmpeg).")
     return output_wav
 
 
@@ -550,12 +901,13 @@ def get_audio_duration(audio_path: str, log_fn) -> float:
     return dur
 
 
-def extract_word_timestamps(audio_path: str, whisper_size: str, log_fn) -> List[dict]:
+def extract_word_timestamps(audio_path: str, whisper_size: str, log_fn, language: Optional[str] = None) -> List[dict]:
+    """`language` ("id"/"en") skips Whisper's auto-detect, which can mislabel Indonesian speech and degrade the transcript."""
     from faster_whisper import WhisperModel
-    log_fn(f"[WHISPER] Loading Faster-Whisper model ('{whisper_size}', int8 CPU)...")
+    log_fn(f"[WHISPER] Loading Faster-Whisper model ('{whisper_size}', int8 CPU, language={language or 'auto'})...")
     t0 = time.time()
     whisper_model = WhisperModel(whisper_size, device="cpu", compute_type="int8")
-    segments, _ = whisper_model.transcribe(audio_path, word_timestamps=True)
+    segments, _ = whisper_model.transcribe(audio_path, word_timestamps=True, language=language)
 
     words = []
     for seg in segments:
@@ -688,7 +1040,10 @@ def get_speckled_paper_canvas(width: int, height: int, bg_hex: str) -> Image.Ima
     return base.copy()
 
 
+@lru_cache(maxsize=256)
 def load_font(size: int, bold: bool = True) -> ImageFont.FreeTypeFont:
+    """Cached: `_fit_font` probes several sizes per text line per frame, and every probe used to re-read
+    the TTF from disk (thousands of file loads on a long render)."""
     candidates = [
         "/System/Library/Fonts/Supplemental/Arial Black.ttf" if bold else "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
         "/System/Library/Fonts/Supplemental/Impact.ttf",
@@ -1338,17 +1693,19 @@ class VectorKit:
                 continue
             f = self._fit_font(txt, base_sz, max_w_ratio=0.88)
             y_off = int((1.0 - p) * 45 * self.S)
-            ty = cur_y + int(f.size * 0.5) + y_off
+            f_px = int(getattr(f, "size", base_sz * self.S))   # bitmap fallback font has no .size
+            ty = cur_y + int(f_px * 0.5) + y_off
             self.draw.text((cx, ty), txt, font=f, fill=self.col(col_key), anchor="mm")
-            cur_y += int(f.size * 1.16)
+            cur_y += int(f_px * 1.16)
 
 
 # ==========================================
 # STAGE 5A & 5B: 2-PASS CREATIVE DIRECTOR & PURE PYTHON VECTOR ARTIST
 # ==========================================
 PASS1_STORYBOARD_PROMPT = """You are a Senior Motion Graphics Creative Director (Claude Nalarka style).
-Given a topic, structured script, and Whisper word timestamps, design a 10 to 14 beat visual storyboard from `0.0` to `{total_dur}.0` seconds.
-Voiceover starts at `1.0`s.
+Given a topic, structured script, and Whisper word timestamps, design a {beats_lo} to {beats_hi} beat visual storyboard covering `{win_start:.1f}` to `{win_end:.1f}` seconds (the whole video is `{total_dur}.0` seconds long).
+Voiceover starts at `1.0`s. {window_note}
+Every beat must last at least `1.2` seconds, `start` values must strictly increase, and the first beat of this window MUST start exactly at `{win_start:.1f}`.
 
 ### RULES FOR DIVERSE, TOPIC-SPECIFIC VISUAL STORYTELLING
 1. **EVERY BEAT MUST DEPICT A CONCRETE, UNIQUE PHYSICAL OBJECT OR MECHANISM FROM THE SCRIPT**:
@@ -1362,6 +1719,8 @@ Voiceover starts at `1.0`s.
      * `"statement_pill"` : Full-screen 3-word punchy statement (`lines` has 3 items: Top Word, Tilted Pill Word, Bottom Word) + accent illustration at bottom (`stage_cy=77%`).
    - `bg_color`: Rotate `"cream"`, `"orange_bg"`, and `"green_bg"`! (When `bg_color` is `"orange_bg"` or `"green_bg"`, set line text colors to `"cream"` and `"dark"`!).
    - `lines`: 2 to 3 short, punchy lines (`1 to 4 words per line`), each with `"text"`, `"color"`, `"size"` (`90` to `130`, or `52` for small subtitle tags), and `"delay"` (`0.0`, `0.18`, `0.36`).
+   - `dot_index`: use `1`, `2`, or `3` ONLY with the `"triptych_dots"` layout when the video has exactly three main points; otherwise always `0`.
+3. **VARY TRANSITIONS**: `transition` is how the beat is entered. Allowed values: `"cut"`, `"directional_wipe"`, `"whip_pan"`, `"circle_iris"`, `"crossfade"`. Use `"cut"` for most beats and a different transition at major topic changes; never the same non-cut transition twice in a row.
 
 Return ONLY valid JSON:
 {{
@@ -1386,7 +1745,7 @@ Return ONLY valid JSON:
 }}"""
 
 
-PASS2_PYTHON_VECTOR_ARTIST_PROMPT = """You are a Senior Flat-Vector Illustrator & Creative Coder writing pure Python drawing functions `def beat_01(v):` through `def beat_{count:02d}(v):` for `VectorKit` (`v`).
+PASS2_PYTHON_VECTOR_ARTIST_PROMPT = """You are a Senior Flat-Vector Illustrator & Creative Coder writing pure Python drawing functions `def {first_fn}(v):` through `def {last_fn}(v):` for `VectorKit` (`v`).
 
 ### COORDINATE SYSTEM OF `v` (`VectorKit`)
 - `(0, 0)` is ALREADY positioned at the center of the illustration stage!
@@ -1427,8 +1786,395 @@ PASS2_PYTHON_VECTOR_ARTIST_PROMPT = """You are a Senior Flat-Vector Illustrator 
      * A **skip/fast-forward button or audio player** = player card `v.rect(...)` + `v.waveform_bars(...)` + double triangles `v.poly([(-40,-45), (15,0), (-40,45)], color="white")` + `v.poly([(10,-45), (65,0), (10,45)], color="white")` + bar `v.rect(78, 0, 14, 90, radius=6, color="white")`.
      * **Air vs Bone sound conduction** = side head silhouette (`v.circle` cranium + `v.rect` jaw + ear `v.ellipse`) + outer blue `v.wave_line(-280, -40, -40, -10, color="blue_tear")` labeled `"UDARA"` + inner orange bone vibration `v.wave_line(-40, 95, 85, -10, color="red_hot", freq=6.0)` labeled `"TULANG"`!
 2. **Every beat MUST look distinct from the previous beat** and animate smoothly using `v.spring(...)`, `v.ease(...)`, `v.wave(...)`, `v.wave_line(...)`, or `v.pulse(...)`.
-3. Output ONLY a single ` ```python ... ``` ` code block containing `def beat_01(v):` through `def beat_{count:02d}(v):`.
+3. **Sandbox rules (code that breaks them is rejected and you will be asked to rewrite it):**
+   - NO `import` statements (`math` is already available as `math`), NO `while` loops, NO names or attributes starting with `__`, NO `open`, `eval`, `exec`, `getattr`, `setattr`.
+   - Only these built-ins exist: `range, len, min, max, abs, int, float, str, round, enumerate, zip, list, dict, tuple, sum, pow, bool, any, all, sorted, divmod`.
+   - Every function must be SELF-CONTAINED. If you need a helper, define it as a nested `def` INSIDE the beat function. Do not define top-level helpers or constants.
+4. Output ONLY a single ` ```python ... ``` ` code block containing `def {first_fn}(v):` through `def {last_fn}(v):`.
 """
+
+
+VALID_LAYOUTS = ("triptych_dots", "top_text_bottom_art", "top_art_bottom_text", "statement_pill")
+VALID_BG_COLORS = ("cream", "orange_bg", "green_bg", "blue_bg")
+VALID_TRANSITIONS = ("cut", "directional_wipe", "whip_pan", "circle_iris", "crossfade")
+
+
+# ==========================================
+# SCENE CODE: SPLITTING, SANDBOX VALIDATION & NAMESPACE
+# ==========================================
+_SAFE_BUILTINS: Dict[str, Any] = {
+    "range": range, "len": len, "min": min, "max": max, "abs": abs,
+    "int": int, "float": float, "str": str, "round": round,
+    "enumerate": enumerate, "zip": zip, "list": list, "dict": dict, "tuple": tuple,
+    "sum": sum, "pow": pow, "bool": bool, "any": any, "all": all,
+    "sorted": sorted, "divmod": divmod, "reversed": reversed, "set": set,
+    "map": map, "filter": filter, "isinstance": isinstance,
+    "print": (lambda *a, **k: None),
+    "True": True, "False": False, "None": None,
+}
+
+_FORBIDDEN_NAMES = {
+    "exec", "eval", "open", "compile", "getattr", "setattr", "delattr", "globals", "locals",
+    "vars", "input", "breakpoint", "exit", "quit", "memoryview", "type", "object", "super",
+}
+
+
+def validate_scene_source(src: str) -> Optional[str]:
+    """
+    Static gate for AI-written drawing code. Returns an error string, or None when acceptable.
+    This is a guard rail against accidents and obvious escapes (imports, dunder access, file/eval calls,
+    unbounded `while` loops). It is not a hardened sandbox: only run models you trust.
+    """
+    try:
+        tree = ast.parse(src)
+    except SyntaxError as err:
+        return f"SyntaxError: {err}"
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Import, ast.ImportFrom)):
+            return "import statements are not allowed (math is already available)"
+        if isinstance(node, ast.While):
+            return "'while' loops are not allowed; use 'for ... in range(...)'"
+        if isinstance(node, ast.Global):
+            return "'global' is not allowed"
+        if isinstance(node, ast.Name) and (node.id.startswith("__") or node.id in _FORBIDDEN_NAMES):
+            return f"name '{node.id}' is not allowed"
+        if isinstance(node, ast.Attribute) and node.attr.startswith("__"):
+            return f"attribute '{node.attr}' is not allowed"
+    return None
+
+
+def new_scene_namespace() -> Dict[str, Any]:
+    return {"__builtins__": dict(_SAFE_BUILTINS), "math": math, "clamp": clamp}
+
+
+def _trim_to_function_body(chunk: str) -> str:
+    """
+    Cuts a regex-sliced chunk at the end of its own function. A function body is the `def` line plus every
+    following line that is blank or indented; the first unindented code line (a stray `import math`, a
+    `print(...)`, prose from the model) belongs to something else. Without this, a stray top-level line
+    glued to the PREVIOUS function made that perfectly valid function fail validation.
+    A line that merely closes a bracket opened inside the signature/body (`)`, `]`, `}`) is kept.
+    """
+    lines = chunk.splitlines()
+    keep = 1                                  # the `def` line itself
+    for idx in range(1, len(lines)):
+        ln = lines[idx]
+        if not ln.strip():
+            continue
+        if ln[0] in " \t" or ln.lstrip()[0] in ")]}":
+            keep = idx + 1
+            continue
+        break
+    return "\n".join(lines[:keep]).rstrip()
+
+
+def _salvage_functions(py_code: str, log_fn) -> Tuple[Dict[str, str], Dict[str, str]]:
+    """If the whole module fails to parse, keep every top-level function that parses on its own."""
+    helpers: Dict[str, str] = {}
+    beats: Dict[str, str] = {}
+    matches = list(re.finditer(r"^def\s+(\w+)\s*\(", py_code, flags=re.MULTILINE))
+    for i, m in enumerate(matches):
+        end = matches[i + 1].start() if i + 1 < len(matches) else len(py_code)
+        chunk = _trim_to_function_body(py_code[m.start():end])
+        try:
+            ast.parse(chunk)
+        except SyntaxError as err:
+            log_fn(f"[CODE WARN] '{m.group(1)}' skipped, unrecoverable syntax error: {err}")
+            continue
+        (beats if re.fullmatch(r"beat_\d+", m.group(1)) else helpers)[m.group(1)] = chunk
+    return helpers, beats
+
+
+def split_scene_code(py_code: str, log_fn) -> Tuple[Dict[str, str], Dict[str, str]]:
+    """Splits generated code into (helpers, beats), each {name: source}."""
+    try:
+        tree = ast.parse(py_code)
+    except SyntaxError as err:
+        log_fn(f"[CODE WARN] Module has a syntax error ({err}); salvaging function by function...")
+        return _salvage_functions(py_code, log_fn)
+
+    helpers: Dict[str, str] = {}
+    beats: Dict[str, str] = {}
+    for i, node in enumerate(tree.body):
+        seg = ast.get_source_segment(py_code, node)
+        if not seg:
+            continue
+        if isinstance(node, ast.FunctionDef):
+            (beats if re.fullmatch(r"beat_\d+", node.name) else helpers)[node.name] = seg
+        elif isinstance(node, (ast.Assign, ast.AnnAssign)):
+            helpers[f"__const_{i}"] = seg
+    return helpers, beats
+
+
+def register_source(namespace: Dict[str, Any], name: str, src: str, log_fn) -> bool:
+    err = validate_scene_source(src)
+    if err:
+        log_fn(f"[CODE REJECTED] {name}: {err}")
+        return False
+    try:
+        exec(src, namespace)
+    except Exception as exc:
+        log_fn(f"[CODE ERROR] {name} failed to load: {type(exc).__name__}: {exc}")
+        return False
+    if name.startswith("__const_"):
+        return True
+    return callable(namespace.get(name))
+
+
+def new_scene_sources() -> Dict[str, Dict[str, str]]:
+    return {"helpers": {}, "beats": {}}
+
+
+def build_namespace(sources: Dict[str, Dict[str, str]], log_fn) -> Dict[str, Any]:
+    ns = new_scene_namespace()
+    for name, src in sources.get("helpers", {}).items():
+        register_source(ns, name, src, log_fn)
+    for name, src in sources.get("beats", {}).items():
+        register_source(ns, name, src, log_fn)
+    return ns
+
+
+def add_generated_code(plan: dict, namespace: Dict[str, Any], py_code: str, log_fn) -> List[str]:
+    """Parses a code block from the model, loads what is valid, and records the sources on the plan."""
+    helpers, beats = split_scene_code(py_code, log_fn)
+    store = plan.setdefault("scene_sources", new_scene_sources())
+    for name, src in helpers.items():
+        if name in store["helpers"] and store["helpers"][name] != src and not name.startswith("__const_"):
+            log_fn(f"[CODE WARN] Helper '{name}' redefined by a later batch; the newer version wins.")
+        if register_source(namespace, name, src, log_fn):
+            store["helpers"][name] = src
+    loaded: List[str] = []
+    for name, src in beats.items():
+        if register_source(namespace, name, src, log_fn):
+            store["beats"][name] = src
+            loaded.append(name)
+    return loaded
+
+
+def register_beat_source(plan: dict, namespace: Dict[str, Any], name: str, src: str, log_fn) -> bool:
+    if register_source(namespace, name, src, log_fn):
+        plan.setdefault("scene_sources", new_scene_sources())["beats"][name] = src
+        return True
+    return False
+
+
+def write_scene_module_file(plan: dict, path: str = "generated_scenes.py"):
+    store = plan.get("scene_sources") or new_scene_sources()
+    parts = ["# Auto-generated by Nalarka Motion Graphics Studio v8.1\nimport math\n"]
+    parts += list(store.get("helpers", {}).values())
+    for name in sorted(store.get("beats", {})):
+        parts.append(store["beats"][name])
+    with open(path, "w", encoding="utf-8") as f:
+        f.write("\n\n".join(parts) + "\n")
+
+
+# ==========================================
+# STORYBOARD: SANITISING, WINDOWING & BATCHED CODE GENERATION
+# ==========================================
+def sanitize_scenes(scenes: List[Any], total_dur: float, log_fn) -> List[dict]:
+    """
+    Repairs the model's storyboard so rendering can trust it: sorted, strictly increasing starts,
+    >= MIN_BEAT_SECONDS per beat, valid layout / colour / transition, beat 1 at 0.0 and last beat to total_dur.
+    (The old code trusted the raw model output; unsorted or duplicate starts gave zero/negative-length beats.)
+    """
+    items: List[dict] = []
+    for s in scenes or []:
+        if not isinstance(s, dict):
+            continue
+        try:
+            start = float(s.get("start", 0.0))
+        except (TypeError, ValueError):
+            continue
+        d = dict(s)
+        d["start"] = start
+        items.append(d)
+    if not items:
+        raise ValueError("Storyboard contains no usable scenes.")
+
+    items.sort(key=lambda s: s["start"])
+    kept: List[dict] = []
+    for s in items:
+        st = max(0.0, min(s["start"], float(total_dur)))
+        if not kept:
+            st = 0.0
+        elif st < kept[-1]["start"] + MIN_BEAT_SECONDS:
+            st = kept[-1]["start"] + MIN_BEAT_SECONDS
+        if kept and st > total_dur - MIN_BEAT_SECONDS:
+            log_fn(f"[STORYBOARD] Dropped a beat that no longer fits before {total_dur}s.")
+            continue
+        s["start"] = round(st, 3)
+        kept.append(s)
+
+    bg_cycle = ["cream", "orange_bg", "green_bg"]
+    for i, s in enumerate(kept):
+        s["beat_id"] = i + 1
+        s["end"] = round(kept[i + 1]["start"], 3) if i + 1 < len(kept) else float(total_dur)
+
+        layout = str(s.get("layout", "")).lower().strip()
+        s["layout"] = layout if layout in VALID_LAYOUTS else "top_text_bottom_art"
+
+        bg = str(s.get("bg_color", "")).lower().strip()
+        s["bg_color"] = bg if bg in VALID_BG_COLORS else bg_cycle[i % len(bg_cycle)]
+
+        tr = str(s.get("transition", "cut")).lower().strip()
+        s["transition"] = tr if tr in VALID_TRANSITIONS and i > 0 else "cut"
+
+        try:
+            dot = int(s.get("dot_index", 0) or 0)
+        except (TypeError, ValueError):
+            dot = 0
+        s["dot_index"] = dot if dot in (0, 1, 2, 3) else 0
+
+        lines: List[dict] = []
+        raw_lines = s.get("lines")
+        for ln in raw_lines if isinstance(raw_lines, list) else []:
+            if isinstance(ln, str):
+                ln = {"text": ln}
+            if isinstance(ln, dict) and str(ln.get("text", "")).strip():
+                lines.append(ln)
+        s["lines"] = lines
+        if s["layout"] == "statement_pill" and len(lines) < 3:
+            s["layout"] = "top_text_bottom_art"
+
+        s["summary"] = str(s.get("summary", "") or f"Beat {i + 1}")
+        s["visual_blueprint"] = str(s.get("visual_blueprint", "") or s["summary"])
+    return kept
+
+
+def compress_words(words: List[dict], group: int = 4) -> List[dict]:
+    """Phrase-level timestamps (keeps long-video prompts small)."""
+    out = []
+    for i in range(0, len(words), group):
+        chunk = words[i:i + group]
+        out.append({
+            "start": chunk[0]["start"],
+            "end": chunk[-1]["end"],
+            "text": " ".join(w["word"] for w in chunk),
+        })
+    return out
+
+
+def storyboard_windows(total_dur: int) -> List[Tuple[float, float]]:
+    if total_dur <= 120:
+        return [(0.0, float(total_dur))]
+    n = int(math.ceil(total_dur / PASS1_WINDOW_SECONDS))
+    edges = [round(total_dur * i / n, 1) for i in range(n + 1)]
+    edges[-1] = float(total_dur)
+    return [(edges[i], edges[i + 1]) for i in range(n)]
+
+
+def plan_storyboard(
+    base_url: str,
+    api_key: str,
+    model: str,
+    topic: str,
+    sections: List[Dict[str, str]],
+    words: List[dict],
+    total_dur: int,
+    log_fn,
+) -> List[dict]:
+    """PASS 1. Short videos use one call; long ones are planned window by window so the model
+    never has to emit (or keep coherent) a 60-beat JSON document in one go."""
+    windows = storyboard_windows(total_dur)
+    scenes: List[dict] = []
+    for wi, (w_start, w_end) in enumerate(windows):
+        span = w_end - w_start
+        beats_lo = max(1, int(math.ceil(span / 7.0)))
+        beats_hi = max(beats_lo, int(math.ceil(span / 4.5)))
+        note = ""
+        if len(windows) > 1:
+            note = f"This is part {wi + 1} of {len(windows)} of the video."
+            if wi > 0:
+                note += " Continue the story after `previous_beats` and do NOT repeat their objects."
+            if wi == len(windows) - 1:
+                note += " The last beat must hold until the end with a memorable closing visual."
+
+        in_win = [w for w in words if w_start - 0.5 <= w["start"] < w_end]
+        stamps = compress_words(in_win) if len(in_win) > 160 else in_win
+        payload: Dict[str, Any] = {
+            "topic": topic,
+            "structured_sections": sections,
+            "word_timestamps": stamps,
+            "total_duration": total_dur,
+            "window": [w_start, w_end],
+        }
+        if scenes:
+            payload["previous_beats"] = [
+                {"beat_id": s.get("beat_id", i + 1), "summary": s.get("summary", ""), "visual": str(s.get("visual_blueprint", ""))[:160],
+                 "bg_color": s.get("bg_color"), "layout": s.get("layout")}
+                for i, s in enumerate(scenes[-8:])
+            ]
+
+        p1_sys = PASS1_STORYBOARD_PROMPT.format(
+            total_dur=total_dur, win_start=w_start, win_end=w_end,
+            beats_lo=beats_lo, beats_hi=beats_hi, window_note=note,
+        )
+        log_fn(f"[PASS 1/2: CREATIVE DIRECTOR] Window {wi + 1}/{len(windows)} ({w_start:.0f}s-{w_end:.0f}s): planning {beats_lo}-{beats_hi} beats...")
+        data = call_ai_json(
+            base_url, api_key, model, p1_sys, json.dumps(payload, ensure_ascii=False), log_fn,
+            temperature=0.40, max_tokens=16000,
+        )
+        win_scenes = data.get("scenes", []) if isinstance(data, dict) else []
+        if not win_scenes:
+            raise ValueError(f"Pass 1 returned an empty 'scenes' list for window {wi + 1}.")
+        for s in win_scenes:
+            if isinstance(s, dict):
+                s.setdefault("start", w_start)
+        scenes.extend(win_scenes)
+    return scenes
+
+
+def generate_scene_code_batches(
+    base_url: str,
+    api_key: str,
+    model: str,
+    topic: str,
+    scenes: List[dict],
+    plan: dict,
+    namespace: Dict[str, Any],
+    log_fn,
+):
+    """PASS 2. Beats are coded in small batches (several calls in parallel) so output limits are never hit."""
+    batches = [(i, min(i + PASS2_BATCH_BEATS, len(scenes))) for i in range(0, len(scenes), PASS2_BATCH_BEATS)]
+    log_fn(f"[PASS 2/2: VECTOR ARTIST] Coding {len(scenes)} beats in {len(batches)} batch(es), {PASS2_PARALLEL_CALLS} call(s) in parallel...")
+
+    def _run(span: Tuple[int, int]) -> Tuple[Tuple[int, int], Optional[str]]:
+        lo, hi = span
+        first_fn, last_fn = f"beat_{lo + 1:02d}", f"beat_{hi:02d}"
+        p2_sys = PASS2_PYTHON_VECTOR_ARTIST_PROMPT.format(first_fn=first_fn, last_fn=last_fn)
+        blueprint_list = []
+        for s in scenes[lo:hi]:
+            blueprint_list.append({
+                "function_name": f"beat_{s['beat_id']:02d}",
+                "duration": round(float(s["end"]) - float(s["start"]), 2),
+                "bg_color": s.get("bg_color", "cream"),
+                "layout": s.get("layout", "top_text_bottom_art"),
+                "summary": s.get("summary", ""),
+                "visual_blueprint": s.get("visual_blueprint", ""),
+            })
+        prev = ""
+        if lo > 0:
+            prev = f"For variety, the beat just before this batch showed: {scenes[lo - 1].get('visual_blueprint', '')[:200]}\n"
+        p2_user = (
+            f"Topic: {topic}\n{prev}"
+            f"Write Python functions `{first_fn}(v)` through `{last_fn}(v)` implementing each `visual_blueprint` below:\n"
+            + json.dumps(blueprint_list, indent=2, ensure_ascii=False)
+        )
+        try:
+            return span, call_ai_python_code(base_url, api_key, model, p2_sys, p2_user, log_fn, temperature=0.35)
+        except Exception as err:
+            log_fn(f"[PASS 2 WARN] Batch {first_fn}-{last_fn} failed ({err}). The audit loop will rewrite these beats one by one.")
+            return span, None
+
+    with ThreadPoolExecutor(max_workers=max(1, PASS2_PARALLEL_CALLS)) as pool:
+        results = list(pool.map(_run, batches))
+
+    for (lo, hi), code in results:   # registered in order, on this thread (no races on `plan`)
+        if code:
+            loaded = add_generated_code(plan, namespace, code, log_fn)
+            missing = [f"beat_{i + 1:02d}" for i in range(lo, hi) if f"beat_{i + 1:02d}" not in loaded]
+            if missing:
+                log_fn(f"[PASS 2 WARN] Missing/invalid after batch: {', '.join(missing)} (will be rewritten by the audit).")
 
 
 def generate_two_pass_storyboard_and_code(
@@ -1442,82 +2188,24 @@ def generate_two_pass_storyboard_and_code(
     ref_profile: dict,
     log_fn
 ) -> Tuple[dict, Dict[str, Any]]:
-    # PASS 1: Storyboard & Visual Blueprints (JSON)
-    log_fn(f"[PASS 1/2: CREATIVE DIRECTOR] Planning topic-specific visual blueprints for '{topic}'...")
-    p1_sys = PASS1_STORYBOARD_PROMPT.format(total_dur=total_dur)
-    p1_user = json.dumps({
-        "topic": topic,
-        "structured_sections": sections,
-        "word_timestamps": words,
-        "total_duration": total_dur
-    }, ensure_ascii=False)
+    log_fn(f"[PASS 1/2: CREATIVE DIRECTOR] Planning topic-specific visual blueprints for '{topic}' ({total_dur}s)...")
+    raw_scenes = plan_storyboard(base_url, api_key, model, topic, sections, words, total_dur, log_fn)
+    scenes = sanitize_scenes(raw_scenes, total_dur, log_fn)
 
-    plan = call_ai_json(base_url, api_key, model, p1_sys, p1_user, log_fn, temperature=0.40)
-    plan["palette"] = ref_profile["palette"]
-    scenes = plan.get("scenes", [])
-    if not scenes:
-        raise ValueError("Pass 1 returned an empty 'scenes' list.")
-
-    scenes[0]["start"] = 0.0
-    for i in range(len(scenes) - 1):
-        scenes[i]["end"] = round(float(scenes[i + 1]["start"]), 3)
-        scenes[i]["beat_id"] = i + 1
-    scenes[-1]["end"] = float(total_dur)
-    scenes[-1]["beat_id"] = len(scenes)
-
+    plan: Dict[str, Any] = {"scenes": scenes, "palette": ref_profile["palette"], "total_duration": total_dur}
+    plan["scene_sources"] = new_scene_sources()
     for s in scenes:
-        log_fn(f"  Beat #{s['beat_id']:02d} [{s['start']:04.1f}s-{s['end']:04.1f}s] ({s.get('layout')}, {s.get('bg_color')}): {s.get('visual_blueprint')}")
+        log_fn(f"  Beat #{s['beat_id']:02d} [{s['start']:05.1f}s-{s['end']:05.1f}s] ({s.get('layout')}, {s.get('bg_color')}, {s.get('transition')}): {s.get('visual_blueprint')}")
 
-    # PASS 2: Pure Python Flat-Vector Code Generation
-    log_fn(f"[PASS 2/2: VECTOR ARTIST] Writing pure Python flat-vector functions for {len(scenes)} beats...")
-    p2_sys = PASS2_PYTHON_VECTOR_ARTIST_PROMPT.format(count=len(scenes))
-    blueprint_list = [
-        {
-            "function_name": f"beat_{s['beat_id']:02d}",
-            "duration": round(float(s["end"]) - float(s["start"]), 2),
-            "bg_color": s.get("bg_color", "cream"),
-            "layout": s.get("layout", "top_text_bottom_art"),
-            "summary": s.get("summary", ""),
-            "visual_blueprint": s.get("visual_blueprint", "")
-        }
-        for s in scenes
-    ]
-    p2_user = (
-        f"Topic: {topic}\n"
-        f"Write Python functions `beat_01(v)` through `beat_{len(scenes):02d}(v)` implementing each `visual_blueprint` below:\n"
-        + json.dumps(blueprint_list, indent=2, ensure_ascii=False)
-    )
-
-    py_code = call_ai_python_code(base_url, api_key, model, p2_sys, p2_user, log_fn, temperature=0.35)
-    with open("generated_scenes.py", "w", encoding="utf-8") as f:
-        f.write("# Auto-generated by Nalarka Motion Graphics Studio v7.0\nimport math\n\n" + py_code + "\n")
-
-    namespace = compile_scene_module(py_code, log_fn)
+    namespace = new_scene_namespace()
+    generate_scene_code_batches(base_url, api_key, model, topic, scenes, plan, namespace, log_fn)
+    write_scene_module_file(plan)
     return plan, namespace
 
 
 # ==========================================
 # STAGE 5C: SELF-CORRECTION LOOP (COMPLEXITY + ANTI-REPETITION AUDIT)
 # ==========================================
-def compile_scene_module(py_code: str, log_fn) -> Dict[str, Any]:
-    safe_globals: Dict[str, Any] = {
-        "__builtins__": {
-            "range": range, "len": len, "min": min, "max": max,
-            "abs": abs, "int": int, "float": float, "str": str,
-            "round": round, "enumerate": enumerate, "zip": zip,
-            "list": list, "dict": dict, "tuple": tuple,
-            "True": True, "False": False, "None": None,
-        },
-        "math": math,
-        "clamp": clamp,
-    }
-    try:
-        exec(py_code, safe_globals)
-    except SyntaxError as e:
-        log_fn(f"[PYTHON SYNTAX WARN] {e}")
-    return safe_globals
-
-
 def render_single_beat_canvas(
     t: float,
     beat: dict,
@@ -1540,7 +2228,7 @@ def render_single_beat_canvas(
         except Exception as e:
             err = f"{type(e).__name__}: {e}"
     else:
-        err = f"Function '{fn_name}(v)' not found in generated_scenes.py"
+        err = f"Function '{fn_name}(v)' is missing or was rejected by the code validator"
 
     # Procedural geometric fallback if AI function crashed after all retries (NO yawning face!)
     if err is not None or v.shape_count == 0:
@@ -1560,10 +2248,11 @@ def rewrite_single_beat_function_with_ai(
     beat: dict,
     reason: str,
     log_fn
-) -> Optional[Any]:
+) -> Optional[str]:
+    """Returns validated-ready SOURCE for `beat_XX` (or None). Register it with register_beat_source()."""
     fn_name = f"beat_{beat_idx + 1:02d}"
     sys_prompt = (
-        PASS2_PYTHON_VECTOR_ARTIST_PROMPT.format(count=beat_idx + 1)
+        PASS2_PYTHON_VECTOR_ARTIST_PROMPT.format(first_fn=fn_name, last_fn=fn_name)
         + f"\nWrite ONLY the single Python function `def {fn_name}(v):` to fix the audit issue below.\n"
         "Use at least 8 distinct `v.*` vector shape calls to draw the exact object in `visual_blueprint`!"
     )
@@ -1578,11 +2267,16 @@ def rewrite_single_beat_function_with_ai(
     }, ensure_ascii=False)
 
     code_str = call_ai_python_code(base_url, api_key, model, sys_prompt, user_prompt, log_fn, temperature=0.45)
-    ns = compile_scene_module(code_str, log_fn)
-    if callable(ns.get(fn_name)):
-        beat["custom_code"] = code_str
-        return ns[fn_name]
-    return None
+    helpers, beats = split_scene_code(code_str, log_fn)
+    src = beats.get(fn_name)
+    if src is None and len(beats) == 1:   # model numbered it differently; rename to the expected name
+        only_name, only_src = next(iter(beats.items()))
+        src = re.sub(rf"^def\s+{re.escape(only_name)}\s*\(", f"def {fn_name}(", only_src, count=1)
+    if src is None:
+        return None
+    if helpers:   # keep any helper next to the beat so it stays self-contained
+        src = "\n\n".join(helpers.values()) + "\n\n" + src
+    return src
 
 
 def audit_and_fix_beats(
@@ -1596,14 +2290,17 @@ def audit_and_fix_beats(
     model: str,
     topic: str,
     log_fn,
-    max_retries: int = 2
+    max_retries: int = 2,
+    progress_fn=None,
 ):
-    log_fn(f"[SELF-CORRECTION LOOP v7.0] Auditing {len(plan.get('scenes', []))} beats for complexity, motion & anti-repetition...")
-    palette = plan.get("palette", {})
     scenes = plan.get("scenes", [])
+    log_fn(f"[SELF-CORRECTION LOOP v8.1] Auditing {len(scenes)} beats for complexity, motion & anti-repetition...")
+    palette = plan.get("palette", {})
     prev_stage_crop: Optional[np.ndarray] = None
 
     for idx, beat in enumerate(scenes):
+        if progress_fn:
+            progress_fn(62 + int(8 * idx / max(1, len(scenes))), f"Auditing beat {idx + 1}/{len(scenes)}...")
         st, en = float(beat["start"]), float(beat["end"])
         dur = max(0.3, en - st)
         t_early = st + min(0.12, dur * 0.15)
@@ -1653,12 +2350,18 @@ def audit_and_fix_beats(
             reason_str = " | ".join(issues)
             if attempt < max_retries:
                 log_fn(f"  [BEAT #{idx+1:02d} AUTO-FIX {attempt+1}/{max_retries}] {reason_str}")
-                new_fn = rewrite_single_beat_function_with_ai(base_url, api_key, model, topic, idx, beat, reason_str, log_fn)
-                if new_fn:
-                    namespace[f"beat_{idx+1:02d}"] = new_fn
+                try:
+                    new_src = rewrite_single_beat_function_with_ai(base_url, api_key, model, topic, idx, beat, reason_str, log_fn)
+                except Exception as err:
+                    log_fn(f"  [BEAT #{idx+1:02d} AUTO-FIX ERROR] {err}")
+                    new_src = None
+                if new_src:
+                    register_beat_source(plan, namespace, f"beat_{idx+1:02d}", new_src, log_fn)
             else:
                 prev_stage_crop = cur_crop
                 log_fn(f"  [BEAT #{idx+1:02d} PROCEED] Max retries reached ({reason_str}).")
+
+    write_scene_module_file(plan)   # generated_scenes.py now reflects every rewrite
 
 
 # ==========================================
@@ -1712,7 +2415,8 @@ def render_frame(
     scenes = plan["scenes"]
     active_idx = len(scenes) - 1
     for i, sc in enumerate(scenes):
-        if float(sc["start"]) <= t <= float(sc["end"]):
+        # half-open interval: a frame exactly on a boundary belongs to the NEW beat
+        if float(sc["start"]) <= t < float(sc["end"]):
             active_idx = i
             break
 
@@ -1730,6 +2434,73 @@ def render_frame(
     return img
 
 
+def render_beat_preview_sheet(
+    plan: dict,
+    namespace: Dict[str, Any],
+    words: List[dict],
+    beat_idx: int,
+    width: int,
+    height: int,
+    out_path: str,
+    frames: int = 6,
+) -> str:
+    """Contact sheet of ONE beat (no ffmpeg, no full render). On a 3-minute video, judging a single beat
+    used to cost a full re-render; this takes a couple of seconds."""
+    scenes = plan["scenes"]
+    if not 0 <= beat_idx < len(scenes):
+        raise IndexError(f"Beat index {beat_idx + 1} is out of range (1..{len(scenes)}).")
+    beat = scenes[beat_idx]
+    st, en = float(beat["start"]), float(beat["end"])
+    frames = max(2, int(frames))
+    tw = 360 if height >= width else 480
+    thumbs: List[Image.Image] = []
+    for k in range(frames):
+        t = st + (en - st) * (k + 0.5) / frames
+        img = render_frame(t, width, height, plan, words, namespace)
+        thumbs.append(img.resize((tw, max(1, int(img.height * tw / img.width))), Image.Resampling.LANCZOS))
+    cols = min(3, frames)
+    rows = int(math.ceil(frames / cols))
+    th = thumbs[0].height
+    sheet = Image.new("RGB", (cols * tw, rows * th), (20, 20, 20))
+    for i, im_t in enumerate(thumbs):
+        r, c = divmod(i, cols)
+        sheet.paste(im_t, (c * tw, r * th))
+    sheet.save(out_path)
+    return out_path
+
+
+# --- multi-process frame rendering -------------------------------------------------
+# Worker processes rebuild the scene functions from their SOURCE (functions exec'd from AI code
+# cannot be pickled), then render frames independently. Output order is preserved by imap.
+_MP_STATE: Dict[str, Any] = {}
+
+
+def _mp_init(plan_json: str, words: List[dict], width: int, height: int):
+    plan = json.loads(plan_json)
+    _MP_STATE["plan"] = plan
+    _MP_STATE["words"] = words
+    _MP_STATE["w"] = width
+    _MP_STATE["h"] = height
+    _MP_STATE["ns"] = build_namespace(plan.get("scene_sources") or new_scene_sources(), lambda _m: None)
+
+
+def _mp_ping() -> int:
+    return 1
+
+
+def _mp_render_frame(frame_idx: int) -> bytes:
+    img = render_frame(
+        frame_idx / float(FPS), _MP_STATE["w"], _MP_STATE["h"],
+        _MP_STATE["plan"], _MP_STATE["words"], _MP_STATE["ns"],
+    )
+    return img.tobytes()
+
+
+def default_render_workers() -> int:
+    cpus = os.cpu_count() or 2
+    return max(1, min(8, cpus - 1))
+
+
 def render_video_pipeline(
     plan: dict,
     namespace: Dict[str, Any],
@@ -1741,11 +2512,13 @@ def render_video_pipeline(
     width: int,
     height: int,
     log_fn,
-    progress_fn
+    progress_fn,
+    workers: int = 1,
 ):
     total_frames = total_dur * FPS
     fade_st = max(0.0, round(total_dur - 2.5, 2))
     fade_vo_st = max(0.0, round(total_dur - 0.5, 2))
+    preset = "medium" if total_dur <= 90 else "veryfast"   # long videos: favour turnaround
 
     cmd = [
         "ffmpeg", "-y",
@@ -1772,38 +2545,93 @@ def render_video_pipeline(
     cmd += [
         "-filter_complex", filter_complex,
         "-map", "0:v", "-map", "[aout]",
-        "-c:v", "libx264", "-preset", "medium", "-crf", "18",
+        "-c:v", "libx264", "-preset", preset, "-crf", "18",
         "-pix_fmt", "yuv420p", "-r", str(FPS), "-frames:v", str(total_frames),
         "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-t", str(total_dur),
         "-movflags", "+faststart", output_path
     ]
 
-    log_fn(f"[FFMPEG] Rendering {total_frames} frames ({total_dur}s @ {FPS}fps, {width}x{height})...")
+    # ---- frame source: worker pool (preferred) or in-process fallback ----
+    pool = None
+    workers = max(1, int(workers))
+    if workers > 1 and total_frames > FPS * 3:
+        try:
+            ctx = multiprocessing.get_context("spawn")
+            pool = ctx.Pool(
+                processes=workers,
+                initializer=_mp_init,
+                initargs=(json.dumps(plan, ensure_ascii=False), words, width, height),
+            )
+            pool.apply_async(_mp_ping).get(timeout=90)   # fails fast if workers cannot start
+        except Exception as err:
+            log_fn(f"[RENDER WARN] Could not start {workers} render workers ({err}). Rendering in a single process instead.")
+            if pool is not None:
+                pool.terminate()
+            pool = None
+
+    stop = threading.Event()
+    sem = threading.BoundedSemaphore(max(2, workers * 3)) if pool else None   # caps frames in flight (~6 MB each)
+
+    def _task_ids():
+        for i in range(total_frames):
+            while not sem.acquire(timeout=0.5):
+                if stop.is_set():
+                    return
+            if stop.is_set():
+                return
+            yield i
+
+    if pool:
+        frames_iter = pool.imap(_mp_render_frame, _task_ids(), chunksize=1)
+    else:
+        frames_iter = (render_frame(i / float(FPS), width, height, plan, words, namespace).tobytes() for i in range(total_frames))
+
+    log_fn(
+        f"[FFMPEG] Rendering {total_frames} frames ({total_dur}s @ {FPS}fps, {width}x{height}, "
+        f"x264 {preset}, {'%d workers' % workers if pool else '1 process'})..."
+    )
     t0 = time.time()
+    written = 0
+    pipe_broken = False
 
     with open(FFMPEG_LOG_FILE, "w", encoding="utf-8") as ff_err:
         proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stderr=ff_err)
         try:
-            for frame_idx in range(total_frames):
-                t = frame_idx / float(FPS)
-                frame_img = render_frame(t, width, height, plan, words, namespace)
-                proc.stdin.write(frame_img.tobytes())
+            for frame_idx, data in enumerate(frames_iter):
+                if sem:
+                    sem.release()
+                try:
+                    proc.stdin.write(data)
+                except (BrokenPipeError, OSError):
+                    pipe_broken = True   # ffmpeg died; its log (checked below) explains why
+                    break
+                written += 1
 
                 if (frame_idx + 1) % 30 == 0 or frame_idx == total_frames - 1:
                     pct = int(((frame_idx + 1) / total_frames) * 100)
                     progress_fn(pct, f"Rendering frame {frame_idx + 1}/{total_frames} ({pct}%)")
                 if (frame_idx + 1) % 150 == 0 or frame_idx == total_frames - 1:
-                    log_fn(f"[RENDER] Progress: {frame_idx + 1}/{total_frames} frames ({int((frame_idx+1)/total_frames*100)}%)")
+                    elapsed = max(0.001, time.time() - t0)
+                    rate = (frame_idx + 1) / elapsed
+                    eta = (total_frames - frame_idx - 1) / rate
+                    log_fn(f"[RENDER] {frame_idx + 1}/{total_frames} frames ({int((frame_idx+1)/total_frames*100)}%) | {rate:.1f} fps | ETA {eta:.0f}s")
         finally:
-            if proc.stdin:
-                proc.stdin.close()
+            stop.set()
+            if pool is not None:
+                pool.terminate()
+                pool.join()
+            try:
+                if proc.stdin:
+                    proc.stdin.close()
+            except OSError:
+                pass
             ret = proc.wait()
 
-    if ret != 0:
+    if ret != 0 or pipe_broken or written != total_frames:
         with open(FFMPEG_LOG_FILE, "r", encoding="utf-8", errors="replace") as f:
             err_tail = f.read()[-1500:]
-        log_fn(f"[FFMPEG ERROR] Exit code {ret}:\n{err_tail}")
-        raise RuntimeError(f"FFmpeg failed with exit code {ret}. Check {FFMPEG_LOG_FILE}.")
+        log_fn(f"[FFMPEG ERROR] Exit code {ret}, frames written {written}/{total_frames}:\n{err_tail}")
+        raise RuntimeError(f"FFmpeg failed (exit code {ret}, {written}/{total_frames} frames). Check {FFMPEG_LOG_FILE}.")
 
     log_fn(f"[RENDER] Completed in {round(time.time() - t0, 2)}s -> {output_path}")
 
@@ -1816,7 +2644,8 @@ def run_verification_suite(
     expected_dur: Optional[int],
     expected_w: int,
     expected_h: int,
-    log_fn
+    log_fn,
+    max_duration: int = DEFAULT_MAX_DURATION
 ) -> dict:
     if not os.path.exists(output_path):
         raise FileNotFoundError(f"Output MP4 file not found: {output_path}")
@@ -1870,7 +2699,7 @@ def run_verification_suite(
 
     last_ts = max(0.0, round(target_dur - 0.1, 2))
     subprocess.run(
-        ["ffmpeg", "-y", "-i", output_path, "-vf", "fps=1/2,scale=360:-1", str(check_dir / "check_%02d.png")],
+        ["ffmpeg", "-y", "-i", output_path, "-vf", f"fps=1/{max(2.0, target_dur / 15.0):.3f},scale=360:-1", str(check_dir / "check_%02d.png")],
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
     )
     last_frame_path = str(check_dir / "last_frame.png")
@@ -1913,8 +2742,8 @@ def run_verification_suite(
             f"r_frame_rate={v_stream.get('r_frame_rate')}, avg_frame_rate={v_stream.get('avg_frame_rate')}"
         ),
         (
-            "4. Exact Container Duration (<= 60s Hard Cap)",
-            abs(fmt_dur - target_dur) <= 0.12 and fmt_dur <= (MAX_DURATION + 0.12),
+            f"4. Exact Container Duration (<= {max_duration}s Cap)",
+            abs(fmt_dur - target_dur) <= 0.12 and fmt_dur <= (max_duration + 0.12),
             f"target={target_dur}.000s, actual={fmt_dur:.3f}s"
         ),
         (
@@ -1938,6 +2767,18 @@ def run_verification_suite(
     for name, passed, detail in tests:
         log_fn(f"  {'[PASS]' if passed else '[FAIL]'} {name} -> ({detail})")
 
+    # Informational (not part of the 7 pass/fail checks): long frozen stretches usually mean a beat's animation stalled.
+    try:
+        frz = subprocess.run(
+            ["ffmpeg", "-i", output_path, "-vf", "freezedetect=n=-60dB:d=2.5", "-an", "-f", "null", "-"],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+        )
+        freezes = [ln.strip() for ln in frz.stderr.splitlines() if "freeze_start" in ln]
+        if freezes:
+            log_fn(f"  [NOTE] {len(freezes)} frozen stretch(es) >= 2.5s detected (check the contact sheet if unintended).")
+    except Exception:
+        pass
+
     log_fn(f"[VERIFICATION SUMMARY] Passed {passed_count}/{len(tests)} checks. Sheet: check/verification_contact_sheet.jpg")
     if passed_count < len(tests):
         raise AssertionError(f"Verification Suite failed {len(tests) - passed_count} check(s).")
@@ -1946,14 +2787,14 @@ def run_verification_suite(
 
 
 # ==========================================
-# GRAPHICAL USER INTERFACE (v7.0 — UNIVERSAL PROCEDURAL VECTOR STUDIO)
+# GRAPHICAL USER INTERFACE (v8.1 — UNIVERSAL PROCEDURAL VECTOR STUDIO)
 # ==========================================
 class NalarkaStudioApp(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("Nalarka Motion Graphics Studio v7.0 (Universal Procedural Vector Engine — Topic-Agnostic)")
-        self.geometry("1240x950")
-        self.minsize(1080, 840)
+        self.title("Nalarka Motion Graphics Studio v8.1 (Universal Procedural Vector Engine — OpenRouter + Long-Video Mode)")
+        self.geometry("1240x1010")
+        self.minsize(1080, 880)
 
         self.log_queue = queue.Queue()
         self.current_script_data = None
@@ -1962,8 +2803,27 @@ class NalarkaStudioApp(tk.Tk):
         self.current_words = []
         self.ref_library_dir = DEFAULT_REF_LIBRARY_DIR
 
+        # Per-provider settings so switching providers never overwrites the other one's key/models.
+        self._active_provider = PROVIDER_CUSTOM
+        self.provider_cfg: Dict[str, Dict[str, str]] = {
+            PROVIDER_CUSTOM: {
+                "base_url": PROVIDER_DEFAULT_BASE_URL[PROVIDER_CUSTOM], "api_key": "",
+                "coder_model": OAO_VISUAL_CODER_MODELS[0], "script_model": "deepseek-v4-flash",
+            },
+            PROVIDER_OPENROUTER: {
+                "base_url": PROVIDER_DEFAULT_BASE_URL[PROVIDER_OPENROUTER], "api_key": "",
+                "coder_model": OPENROUTER_VISUAL_CODER_MODELS[0], "script_model": OPENROUTER_SCRIPT_MODELS[0],
+            },
+        }
+        self.model_lists: Dict[str, Tuple[List[str], List[str]]] = {
+            PROVIDER_CUSTOM: (list(OAO_VISUAL_CODER_MODELS), list(OAO_SCRIPT_MODELS)),
+            PROVIDER_OPENROUTER: (list(OPENROUTER_VISUAL_CODER_MODELS), list(OPENROUTER_SCRIPT_MODELS)),
+        }
+
         self._build_ui()
         self._load_config()
+        self._on_max_duration_changed()
+        self._update_provider_hint()
         self._refresh_reference_library()
         self.after(100, self._poll_log_queue)
 
@@ -1971,35 +2831,53 @@ class NalarkaStudioApp(tk.Tk):
         main_frame = ttk.Frame(self, padding=10)
         main_frame.pack(fill=tk.BOTH, expand=True)
 
-        # --- SECTION 1: AI ENDPOINT & DUAL MODEL CONFIGURATION ---
-        ai_box = ttk.LabelFrame(main_frame, text=" 1. Custom OpenAI API Configuration (oao.ai.id Model Presets) ", padding=6)
+        # --- SECTION 1: AI PROVIDER (CUSTOM OPENAI-COMPATIBLE / OPENROUTER) & DUAL MODEL CONFIGURATION ---
+        ai_box = ttk.LabelFrame(main_frame, text=" 1. AI Provider: Custom OpenAI-compatible (oao.ai.id) or OpenRouter ", padding=6)
         ai_box.pack(fill=tk.X, pady=(0, 6))
 
-        ttk.Label(ai_box, text="Base URL:").grid(row=0, column=0, sticky=tk.W, padx=4, pady=2)
-        self.base_url_var = tk.StringVar(value="https://oao.ai.id/v1")
-        ttk.Entry(ai_box, textvariable=self.base_url_var, width=34).grid(row=0, column=1, sticky=tk.EW, padx=4, pady=2)
+        ttk.Label(ai_box, text="Provider:").grid(row=0, column=0, sticky=tk.W, padx=4, pady=2)
+        self.provider_var = tk.StringVar(value=PROVIDER_LABELS[PROVIDER_CUSTOM])
+        self.provider_combo = ttk.Combobox(
+            ai_box, textvariable=self.provider_var, values=list(PROVIDER_LABELS.values()), state="readonly", width=34
+        )
+        self.provider_combo.grid(row=0, column=1, sticky=tk.EW, padx=4, pady=2)
+        self.provider_combo.bind("<<ComboboxSelected>>", lambda _e: self._on_provider_changed())
 
-        ttk.Label(ai_box, text="Vector Artist Model (Stage 5):").grid(row=0, column=2, sticky=tk.W, padx=4, pady=2)
+        self.provider_hint_var = tk.StringVar(value="")
+        ttk.Label(ai_box, textvariable=self.provider_hint_var, foreground="#555555").grid(
+            row=0, column=2, columnspan=2, sticky=tk.W, padx=4, pady=2
+        )
+
+        ttk.Label(ai_box, text="Base URL:").grid(row=1, column=0, sticky=tk.W, padx=4, pady=2)
+        self.base_url_var = tk.StringVar(value=PROVIDER_DEFAULT_BASE_URL[PROVIDER_CUSTOM])
+        ttk.Entry(ai_box, textvariable=self.base_url_var, width=34).grid(row=1, column=1, sticky=tk.EW, padx=4, pady=2)
+
+        ttk.Label(ai_box, text="Vector Artist Model (Stage 5):").grid(row=1, column=2, sticky=tk.W, padx=4, pady=2)
         self.coder_model_var = tk.StringVar(value="claude-fable-5")
-        ttk.Combobox(ai_box, textvariable=self.coder_model_var, values=OAO_VISUAL_CODER_MODELS, width=22).grid(row=0, column=3, sticky=tk.EW, padx=4, pady=2)
+        self.coder_combo = ttk.Combobox(ai_box, textvariable=self.coder_model_var, values=OAO_VISUAL_CODER_MODELS, width=26)
+        self.coder_combo.grid(row=1, column=3, sticky=tk.EW, padx=4, pady=2)
 
-        ttk.Label(ai_box, text="API Key:").grid(row=1, column=0, sticky=tk.W, padx=4, pady=2)
+        ttk.Label(ai_box, text="API Key:").grid(row=2, column=0, sticky=tk.W, padx=4, pady=2)
         self.api_key_var = tk.StringVar(value="")
-        ttk.Entry(ai_box, textvariable=self.api_key_var, show="*", width=34).grid(row=1, column=1, sticky=tk.EW, padx=4, pady=2)
+        ttk.Entry(ai_box, textvariable=self.api_key_var, show="*", width=34).grid(row=2, column=1, sticky=tk.EW, padx=4, pady=2)
 
-        ttk.Label(ai_box, text="Script Model (Stage 1):").grid(row=1, column=2, sticky=tk.W, padx=4, pady=2)
+        ttk.Label(ai_box, text="Script Model (Stage 1):").grid(row=2, column=2, sticky=tk.W, padx=4, pady=2)
         self.script_model_var = tk.StringVar(value="deepseek-v4-flash")
-        ttk.Combobox(ai_box, textvariable=self.script_model_var, values=OAO_SCRIPT_MODELS, width=22).grid(row=1, column=3, sticky=tk.EW, padx=4, pady=2)
+        self.script_combo = ttk.Combobox(ai_box, textvariable=self.script_model_var, values=OAO_SCRIPT_MODELS, width=26)
+        self.script_combo.grid(row=2, column=3, sticky=tk.EW, padx=4, pady=2)
 
         btn_frame_ai = ttk.Frame(ai_box)
-        btn_frame_ai.grid(row=0, column=4, rowspan=2, sticky=tk.E, padx=4)
-        ttk.Button(btn_frame_ai, text="Save Config", command=self._save_config).pack(side=tk.LEFT, padx=3)
-        ttk.Button(btn_frame_ai, text="Test Vector Model", command=self._test_ai_connection).pack(side=tk.LEFT, padx=3)
+        btn_frame_ai.grid(row=0, column=4, rowspan=3, sticky=tk.E, padx=4)
+        ttk.Button(btn_frame_ai, text="Save Config", command=self._save_config).grid(row=0, column=0, padx=3, pady=1, sticky=tk.EW)
+        ttk.Button(btn_frame_ai, text="Test Vector Model", command=self._test_ai_connection).grid(row=0, column=1, padx=3, pady=1, sticky=tk.EW)
+        ttk.Button(btn_frame_ai, text="Fetch OpenRouter Models", command=self._start_fetch_or_models).grid(
+            row=1, column=0, columnspan=2, padx=3, pady=1, sticky=tk.EW
+        )
         ai_box.columnconfigure(1, weight=2)
         ai_box.columnconfigure(3, weight=1)
 
         # --- SECTION 2A: TOPIC & STRUCTURED VOICEOVER SCRIPT ---
-        script_box = ttk.LabelFrame(main_frame, text=" 2A. Topic & Structured Voiceover Script ([Hook], [Inti 1..3], [Penutup]) ", padding=6)
+        script_box = ttk.LabelFrame(main_frame, text=" 2A. Topic, Max Duration & Structured Voiceover Script ([Hook], [Inti 1..N], [Penutup]) ", padding=6)
         script_box.pack(fill=tk.X, pady=(0, 6))
 
         top_row = ttk.Frame(script_box)
@@ -2017,8 +2895,20 @@ class NalarkaStudioApp(tk.Tk):
 
         ttk.Button(top_row, text="Copy Clean Text (For Web TTS)", command=self._copy_clean_text_clipboard).pack(side=tk.LEFT)
 
+        dur_row = ttk.Frame(script_box)
+        dur_row.pack(fill=tk.X, pady=(0, 4))
+        ttk.Label(dur_row, text="Max video duration (s):").pack(side=tk.LEFT, padx=(0, 4))
+        self.max_dur_var = tk.StringVar(value=str(DEFAULT_MAX_DURATION))
+        dur_combo = ttk.Combobox(dur_row, textvariable=self.max_dur_var, values=DURATION_PRESETS, width=6)
+        dur_combo.pack(side=tk.LEFT, padx=(0, 8))
+        dur_combo.bind("<<ComboboxSelected>>", lambda _e: self._on_max_duration_changed())
+        dur_combo.bind("<FocusOut>", lambda _e: self._on_max_duration_changed())
+        dur_combo.bind("<Return>", lambda _e: self._on_max_duration_changed())
+        self.dur_hint_var = tk.StringVar(value="")
+        ttk.Label(dur_row, textvariable=self.dur_hint_var, foreground="#555555").pack(side=tk.LEFT)
+
         self.script_info_var = tk.StringVar(
-            value="Structured Script ([Hook], [Inti 1..3], [Penutup] tags are automatically stripped before TTS):"
+            value="Structured Script ([Hook], [Inti 1..N], [Penutup] tags are automatically stripped before TTS):"
         )
         ttk.Label(script_box, textvariable=self.script_info_var).pack(anchor=tk.W)
         self.script_text = ScrolledText(script_box, height=7, font=("Segoe UI", 10), wrap=tk.WORD)
@@ -2140,6 +3030,10 @@ class NalarkaStudioApp(tk.Tk):
         self.synth_bgm_var = tk.BooleanVar(value=True)
         ttk.Checkbutton(opt_frame, text="Auto-Synth BGM", variable=self.synth_bgm_var).pack(side=tk.LEFT, padx=(0, 8))
 
+        ttk.Label(opt_frame, text="Render workers:").pack(side=tk.LEFT, padx=(0, 4))
+        self.workers_var = tk.IntVar(value=default_render_workers())
+        ttk.Spinbox(opt_frame, from_=1, to=16, textvariable=self.workers_var, width=3).pack(side=tk.LEFT, padx=(0, 8))
+
         ttk.Label(opt_frame, text="Output:").pack(side=tk.LEFT, padx=(0, 4))
         self.out_path_var = tk.StringVar(value="output_motion_graphic.mp4")
         ttk.Entry(opt_frame, textvariable=self.out_path_var, width=20).pack(side=tk.LEFT, padx=(0, 6))
@@ -2170,6 +3064,13 @@ class NalarkaStudioApp(tk.Tk):
             state=tk.DISABLED
         )
         self.btn_reroll.pack(side=tk.LEFT, padx=2)
+        self.btn_preview = ttk.Button(
+            reroll_frame,
+            text="Preview Selected Beat (PNG)",
+            command=self._start_preview_beat,
+            state=tk.DISABLED
+        )
+        self.btn_preview.pack(side=tk.LEFT, padx=2)
 
         asset_box.columnconfigure(1, weight=1)
         asset_box.columnconfigure(4, weight=1)
@@ -2259,35 +3160,137 @@ class NalarkaStudioApp(tk.Tk):
                 self.status_var.set(st)
         self.after(100, self._poll_log_queue)
 
-    def _load_config(self):
-        if os.path.exists(CONFIG_FILE):
-            try:
-                with open(CONFIG_FILE, "r", encoding="utf-8") as f:
-                    cfg = json.load(f)
-                self.base_url_var.set(cfg.get("base_url", self.base_url_var.get()))
-                self.api_key_var.set(cfg.get("api_key", ""))
-                self.coder_model_var.set(cfg.get("coder_model", cfg.get("model", "claude-fable-5")))
-                self.script_model_var.set(cfg.get("script_model", "deepseek-v4-flash"))
-                self.tts_provider_var.set(cfg.get("tts_provider", self.tts_provider_var.get()))
-                self.el_api_key_var.set(cfg.get("elevenlabs_api_key", ""))
-                self.el_voice_var.set(cfg.get("elevenlabs_voice_id", ELEVENLABS_VOICE_PRESETS[0]))
-                self.el_model_var.set(cfg.get("elevenlabs_model_id", "eleven_multilingual_v2"))
-                self.el_stability_var.set(float(cfg.get("elevenlabs_stability", 0.50)))
-                self.el_sim_var.set(float(cfg.get("elevenlabs_similarity", 0.75)))
-                self.el_style_var.set(float(cfg.get("elevenlabs_style", 0.15)))
-                self.ref_library_dir = cfg.get("ref_library_dir", DEFAULT_REF_LIBRARY_DIR)
-                if cfg.get("selected_reference"):
-                    self.ref_choice_var.set(cfg.get("selected_reference"))
-                self.log(f"[CONFIG] Loaded configuration from {CONFIG_FILE}")
-            except Exception as e:
-                self.log(f"[CONFIG WARN] Could not read {CONFIG_FILE}: {e}")
+    # ==========================================
+    # PROVIDER SWITCHING, DURATION CAP & CONFIG PERSISTENCE
+    # ==========================================
+    @staticmethod
+    def _provider_key_from_label(label: str) -> str:
+        for key, text in PROVIDER_LABELS.items():
+            if text == label:
+                return key
+        return PROVIDER_CUSTOM
 
-    def _save_config(self):
-        cfg = {
+    def _stash_provider_fields(self, key: str):
+        self.provider_cfg[key].update({
             "base_url": self.base_url_var.get().strip(),
             "api_key": self.api_key_var.get().strip(),
             "coder_model": self.coder_model_var.get().strip(),
             "script_model": self.script_model_var.get().strip(),
+        })
+
+    def _apply_provider_fields(self, key: str):
+        cfg = self.provider_cfg[key]
+        self.provider_var.set(PROVIDER_LABELS[key])
+        self.base_url_var.set(cfg["base_url"])
+        self.api_key_var.set(cfg["api_key"])
+        self.coder_model_var.set(cfg["coder_model"])
+        self.script_model_var.set(cfg["script_model"])
+        coder_list, script_list = self.model_lists[key]
+        self.coder_combo["values"] = coder_list
+        self.script_combo["values"] = script_list
+        self._update_provider_hint()
+
+    def _update_provider_hint(self):
+        if self._active_provider == PROVIDER_OPENROUTER:
+            self.provider_hint_var.set(
+                "OpenRouter: key from openrouter.ai/keys. Model ids look like vendor/model. Click 'Fetch OpenRouter Models' for the live list."
+            )
+        else:
+            self.provider_hint_var.set("Any OpenAI-compatible /v1 endpoint (default: oao.ai.id).")
+
+    def _on_provider_changed(self):
+        new_key = self._provider_key_from_label(self.provider_var.get())
+        if new_key == self._active_provider:
+            return
+        self._stash_provider_fields(self._active_provider)
+        self._active_provider = new_key
+        self._apply_provider_fields(new_key)
+        self._save_config()
+        self.log(f"[PROVIDER] Switched to {PROVIDER_LABELS[new_key]} ({self.base_url_var.get()}).")
+
+    def _get_max_duration(self) -> int:
+        """Reads + normalises the duration cap. Call from the UI thread only."""
+        try:
+            val = int(float(self.max_dur_var.get().strip()))
+        except (ValueError, AttributeError):
+            val = DEFAULT_MAX_DURATION
+        val = max(MIN_DURATION_CAP, min(HARD_MAX_DURATION, val))
+        if self.max_dur_var.get().strip() != str(val):
+            self.max_dur_var.set(str(val))
+        return val
+
+    def _on_max_duration_changed(self):
+        d = self._get_max_duration()
+        lo, hi = script_word_budget(d)
+        beats_lo, beats_hi = int(math.ceil(d / 7.0)), int(math.ceil(d / 4.5))
+        text = f"~{lo}-{hi} spoken words, {script_section_count(d)} sections, ~{beats_lo}-{beats_hi} visual beats."
+        if d > MAX_DURATION:
+            text += f"  EXTENDED MODE: beyond the {MAX_DURATION}s Nalarka spec. More AI calls and a longer render."
+        else:
+            text += "  Standard Nalarka spec."
+        self.dur_hint_var.set(text)
+
+    def _load_config(self):
+        if not os.path.exists(CONFIG_FILE):
+            return
+        try:
+            with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+                cfg = json.load(f)
+
+            providers = cfg.get("providers")
+            if isinstance(providers, dict):
+                for key, stored in providers.items():
+                    if key in self.provider_cfg and isinstance(stored, dict):
+                        for field in self.provider_cfg[key]:
+                            if field in stored:
+                                self.provider_cfg[key][field] = str(stored[field])
+                active = cfg.get("ai_provider", PROVIDER_CUSTOM)
+            else:
+                # legacy single-endpoint config (pre-OpenRouter versions)
+                legacy_url = str(cfg.get("base_url", PROVIDER_DEFAULT_BASE_URL[PROVIDER_CUSTOM]))
+                active = PROVIDER_OPENROUTER if is_openrouter(legacy_url) else PROVIDER_CUSTOM
+                self.provider_cfg[active].update({
+                    "base_url": legacy_url,
+                    "api_key": str(cfg.get("api_key", "")),
+                    "coder_model": str(cfg.get("coder_model", cfg.get("model", self.provider_cfg[active]["coder_model"]))),
+                    "script_model": str(cfg.get("script_model", self.provider_cfg[active]["script_model"])),
+                })
+            if active not in self.provider_cfg:
+                active = PROVIDER_CUSTOM
+            self._active_provider = active
+            self._apply_provider_fields(active)
+
+            self.tts_provider_var.set(cfg.get("tts_provider", self.tts_provider_var.get()))
+            self.el_api_key_var.set(cfg.get("elevenlabs_api_key", ""))
+            self.el_voice_var.set(cfg.get("elevenlabs_voice_id", ELEVENLABS_VOICE_PRESETS[0]))
+            self.el_model_var.set(cfg.get("elevenlabs_model_id", "eleven_multilingual_v2"))
+            self.el_stability_var.set(float(cfg.get("elevenlabs_stability", 0.50)))
+            self.el_sim_var.set(float(cfg.get("elevenlabs_similarity", 0.75)))
+            self.el_style_var.set(float(cfg.get("elevenlabs_style", 0.15)))
+            self.ref_library_dir = cfg.get("ref_library_dir", DEFAULT_REF_LIBRARY_DIR)
+            if cfg.get("selected_reference"):
+                self.ref_choice_var.set(cfg.get("selected_reference"))
+            self.max_dur_var.set(str(cfg.get("max_duration", DEFAULT_MAX_DURATION)))
+            self.workers_var.set(int(cfg.get("render_workers", default_render_workers())))
+            self.log(f"[CONFIG] Loaded configuration from {CONFIG_FILE}")
+        except Exception as e:
+            self.log(f"[CONFIG WARN] Could not read {CONFIG_FILE}: {e}")
+
+    def _save_config(self):
+        self._stash_provider_fields(self._active_provider)
+        active = self.provider_cfg[self._active_provider]
+        try:
+            workers = int(self.workers_var.get())
+        except (tk.TclError, ValueError):
+            workers = default_render_workers()
+        cfg = {
+            "ai_provider": self._active_provider,
+            "providers": self.provider_cfg,
+            # mirrored for older versions of this tool that read a single endpoint
+            "base_url": active["base_url"],
+            "api_key": active["api_key"],
+            "coder_model": active["coder_model"],
+            "script_model": active["script_model"],
             "tts_provider": self.tts_provider_var.get().strip(),
             "elevenlabs_api_key": self.el_api_key_var.get().strip(),
             "elevenlabs_voice_id": self.el_voice_var.get().strip(),
@@ -2297,9 +3300,15 @@ class NalarkaStudioApp(tk.Tk):
             "elevenlabs_style": float(self.el_style_var.get()),
             "ref_library_dir": self.ref_library_dir,
             "selected_reference": self.ref_choice_var.get().strip(),
+            "max_duration": self._get_max_duration(),
+            "render_workers": max(1, min(16, workers)),
         }
         with open(CONFIG_FILE, "w", encoding="utf-8") as f:
             json.dump(cfg, f, indent=2)
+        try:
+            os.chmod(CONFIG_FILE, 0o600)   # the file holds API keys in plain text; keep it owner-only (no-op on Windows)
+        except OSError:
+            pass
 
     def _copy_clean_text_clipboard(self):
         raw_text = self.script_text.get("1.0", tk.END).strip()
@@ -2343,6 +3352,34 @@ class NalarkaStudioApp(tk.Tk):
             self.log(f"[LLM TEST FAILED] {e}")
             self.set_progress(0, "LLM Connection Failed.")
 
+    def _start_fetch_or_models(self):
+        or_key = (
+            self.api_key_var.get().strip()
+            if self._active_provider == PROVIDER_OPENROUTER
+            else self.provider_cfg[PROVIDER_OPENROUTER]["api_key"]
+        )
+        threading.Thread(target=self._worker_fetch_or_models, args=(or_key,), daemon=True).start()
+
+    def _worker_fetch_or_models(self, or_key: str):
+        try:
+            self.set_progress(20, "Fetching OpenRouter model catalogue...")
+            models = fetch_openrouter_models(or_key, self.log)
+            ids = [m["id"] for m in models]
+            free_count = sum(1 for m in models if m["free"])
+
+            def _update():
+                self.model_lists[PROVIDER_OPENROUTER] = (ids, ids)
+                if self._active_provider == PROVIDER_OPENROUTER:
+                    self.coder_combo["values"] = ids
+                    self.script_combo["values"] = ids
+
+            self.after(0, _update)
+            self.log(f"[OPENROUTER] Loaded {len(ids)} models ({free_count} free). Free models usually end in ':free' and are rate-limited.")
+            self.set_progress(100, f"Loaded {len(ids)} OpenRouter models.")
+        except Exception as e:
+            self.log(f"[OPENROUTER MODEL FETCH ERROR] {e}")
+            self.set_progress(0, "Failed to fetch OpenRouter models.")
+
     def _start_fetch_el_voices(self):
         self._save_config()
         threading.Thread(target=self._worker_fetch_el_voices, daemon=True).start()
@@ -2379,34 +3416,38 @@ class NalarkaStudioApp(tk.Tk):
             messagebox.showwarning("Empty Topic", "Please enter a video topic first.")
             return
         self.btn_gen_script.config(state=tk.DISABLED)
-        threading.Thread(target=self._worker_generate_script, args=(topic,), daemon=True).start()
+        max_dur = self._get_max_duration()
+        threading.Thread(target=self._worker_generate_script, args=(topic, max_dur), daemon=True).start()
 
-    def _worker_generate_script(self, topic: str):
+    def _worker_generate_script(self, topic: str, max_dur: int):
         try:
-            self.set_progress(15, f"Generating structured script via '{self.script_model_var.get()}'...")
+            self.set_progress(15, f"Generating structured script via '{self.script_model_var.get()}' (cap {max_dur}s)...")
             data = generate_script(
                 self.base_url_var.get(),
                 self.api_key_var.get(),
                 self.script_model_var.get(),
                 topic,
                 self.lang_var.get(),
-                self.log
+                self.log,
+                max_duration=max_dur
             )
             self.current_script_data = data
             tagged_text = data["tagged_text"]
             clean_text = data["clean_tts_text"]
             word_count = len(clean_text.split())
-            est_vo = round(word_count / 2.5, 1)
-            est_vid = math.ceil(est_vo + 2.5)
+            est_vo, est_vid = estimate_video_seconds(word_count)
 
-            self.log(f"[SCRIPT] Estimate: ~{word_count} spoken words ≈ {est_vo}s voiceover ≈ {est_vid}s total video")
+            self.log(f"[SCRIPT] Estimate: ~{word_count} spoken words ≈ {est_vo}s voiceover ≈ {est_vid}s total video (cap {max_dur}s)")
+            if est_vid > max_dur:
+                self.log(f"[SCRIPT WARN] Estimated video ({est_vid}s) is over the {max_dur}s cap. Shorten the script or raise the cap before rendering.")
             self.log(f"[STRUCTURED SCRIPT OUTPUT]:\n{tagged_text}\n")
 
             def _update_ui():
                 self.script_text.delete("1.0", tk.END)
                 self.script_text.insert(tk.END, tagged_text)
+                over = "  (OVER CAP!)" if est_vid > max_dur else ""
                 self.script_info_var.set(
-                    f"Structured Script (~{word_count} spoken words | Est. Voice ~{est_vo}s | Est. Video ~{est_vid}s — [Tags] stripped for TTS):"
+                    f"Structured Script (~{word_count} spoken words | Est. Voice ~{est_vo}s | Est. Video ~{est_vid}s of {max_dur}s cap{over} — [Tags] stripped for TTS):"
                 )
 
             self.after(0, _update_ui)
@@ -2431,11 +3472,18 @@ class NalarkaStudioApp(tk.Tk):
                 style=float(self.el_style_var.get()),
                 use_speaker_boost=bool(self.el_boost_var.get()),
                 add_ssml_breaks=bool(self.el_ssml_var.get()),
-                log_fn=self.log
+                log_fn=self.log,
+                language_code="en" if "English" in self.lang_var.get() else "id"
             )
         else:
             edge_voice = "en-US-ChristopherNeural" if "English" in self.lang_var.get() else "id-ID-ArdiNeural"
             generate_edge_tts_fallback(raw_editor_text, out_vo, edge_voice, self.log)
+        # remember which script this audio was made from (guards against rendering a stale voiceover)
+        try:
+            with open(out_vo + ".script.sha1", "w", encoding="utf-8") as f:
+                f.write(script_fingerprint(raw_editor_text))
+        except OSError as err:
+            self.log(f"[TTS WARN] Could not write script fingerprint: {err}")
 
     def _start_generate_tts(self):
         self._save_config()
@@ -2445,15 +3493,19 @@ class NalarkaStudioApp(tk.Tk):
             return
         out_vo = self.vo_path_var.get().strip() or "Suara_Voiceover.mp3"
         self.btn_tts.config(state=tk.DISABLED)
-        threading.Thread(target=self._worker_tts, args=(raw_text, out_vo), daemon=True).start()
+        max_dur = self._get_max_duration()
+        threading.Thread(target=self._worker_tts, args=(raw_text, out_vo, max_dur), daemon=True).start()
 
-    def _worker_tts(self, raw_text: str, out_vo: str):
+    def _worker_tts(self, raw_text: str, out_vo: str, max_dur: int):
         try:
+            check_script_fits(raw_text, max_dur, self.log)   # refuse BEFORE spending TTS credits
             self.set_progress(25, f"Synthesizing voiceover via {self.tts_provider_var.get()}...")
             self._synthesize_voiceover_now(raw_text, out_vo)
             dur = get_audio_duration(out_vo, self.log)
-            total_dur = math.ceil(dur + 2.5)
+            total_dur = math.ceil(dur + INTRO_OUTRO_SECONDS)
             self.log(f"[AUDIO INFO] Voiceover = {dur:.2f}s -> Locked Video Target Duration = {total_dur}s")
+            if total_dur > max_dur:
+                self.log(f"[AUDIO WARN] {total_dur}s exceeds the {max_dur}s cap. Raise the cap in Section 2A or shorten the script before rendering.")
             self.set_progress(100, f"Voiceover Ready ({dur:.1f}s)")
         except Exception as e:
             self.log(f"[TTS ERROR]\n{traceback.format_exc()}")
@@ -2481,6 +3533,30 @@ class NalarkaStudioApp(tk.Tk):
         if items:
             self.scene_select_var.set(items[0])
             self.btn_reroll.config(state=tk.NORMAL)
+            self.btn_preview.config(state=tk.NORMAL)
+
+    def _start_preview_beat(self):
+        if not self.current_plan or not self.current_plan.get("scenes"):
+            return
+        m = re.search(r"Beat #(\d+)", self.scene_select_var.get())
+        if not m:
+            return
+        beat_idx = int(m.group(1)) - 1
+        ref_profile = analyze_reference_video(self._get_selected_reference_path(), self.log)
+        width, height = self._resolve_dimensions(ref_profile)   # read Tk variables on the UI thread
+        threading.Thread(target=self._worker_preview_beat, args=(beat_idx, width, height), daemon=True).start()
+
+    def _worker_preview_beat(self, beat_idx: int, width: int, height: int):
+        try:
+            self.set_progress(40, f"Rendering preview of Beat #{beat_idx + 1:02d}...")
+            out_png = os.path.abspath(f"preview_beat_{beat_idx + 1:02d}.png")
+            render_beat_preview_sheet(self.current_plan, self.current_namespace, self.current_words, beat_idx, width, height, out_png)
+            self.log(f"[PREVIEW] Beat #{beat_idx + 1:02d} contact sheet saved: {out_png}")
+            self.set_progress(100, f"Preview ready (Beat #{beat_idx + 1:02d})")
+            webbrowser.open(Path(out_png).as_uri())
+        except Exception:
+            self.log(f"[PREVIEW ERROR]\n{traceback.format_exc()}")
+            self.set_progress(0, "Beat preview failed.")
 
     def _start_reroll_scene(self):
         if not self.current_plan or not self.current_plan.get("scenes"):
@@ -2492,9 +3568,17 @@ class NalarkaStudioApp(tk.Tk):
         beat_idx = int(m.group(1)) - 1
         self.btn_reroll.config(state=tk.DISABLED)
         self.btn_render.config(state=tk.DISABLED)
-        threading.Thread(target=self._worker_reroll_scene, args=(beat_idx,), daemon=True).start()
+        max_dur = self._get_max_duration()
+        workers = self._get_workers()
+        threading.Thread(target=self._worker_reroll_scene, args=(beat_idx, max_dur, workers), daemon=True).start()
 
-    def _worker_reroll_scene(self, beat_idx: int):
+    def _get_workers(self) -> int:
+        try:
+            return max(1, min(16, int(self.workers_var.get())))
+        except (tk.TclError, ValueError):
+            return default_render_workers()
+
+    def _worker_reroll_scene(self, beat_idx: int, max_dur: int, workers: int):
         try:
             beat = self.current_plan["scenes"][beat_idx]
             user_note = self.reroll_note_var.get().strip() or "Draw a completely fresh, detailed multi-part flat-vector illustration for this beat."
@@ -2502,7 +3586,7 @@ class NalarkaStudioApp(tk.Tk):
                 beat["visual_blueprint"] = f"{beat.get('visual_blueprint', '')} ({user_note})"
 
             self.set_progress(25, f"Regenerating Beat #{beat_idx+1:02d} via '{self.coder_model_var.get()}'...")
-            new_fn = rewrite_single_beat_function_with_ai(
+            new_src = rewrite_single_beat_function_with_ai(
                 self.base_url_var.get(),
                 self.api_key_var.get(),
                 self.coder_model_var.get(),
@@ -2512,8 +3596,10 @@ class NalarkaStudioApp(tk.Tk):
                 user_note,
                 self.log
             )
-            if new_fn:
-                self.current_namespace[f"beat_{beat_idx+1:02d}"] = new_fn
+            if new_src and register_beat_source(self.current_plan, self.current_namespace, f"beat_{beat_idx+1:02d}", new_src, self.log):
+                write_scene_module_file(self.current_plan)   # keep generated_scenes.py in sync
+            else:
+                self.log(f"[REROLL WARN] No valid replacement for Beat #{beat_idx+1:02d}; re-rendering with the previous drawing.")
 
             ref_profile = analyze_reference_video(self._get_selected_reference_path(), self.log)
             width, height = self._resolve_dimensions(ref_profile)
@@ -2534,9 +3620,10 @@ class NalarkaStudioApp(tk.Tk):
                 width=width,
                 height=height,
                 log_fn=self.log,
-                progress_fn=self.set_progress
+                progress_fn=self.set_progress,
+                workers=workers
             )
-            run_verification_suite(out_mp4, total_dur, width, height, self.log)
+            run_verification_suite(out_mp4, total_dur, width, height, self.log, max_duration=max(max_dur, total_dur))
             self.set_progress(100, f"Beat #{beat_idx+1:02d} Re-Rendered!")
         except Exception as e:
             self.log(f"[REROLL ERROR]\n{traceback.format_exc()}")
@@ -2551,14 +3638,15 @@ class NalarkaStudioApp(tk.Tk):
         if not os.path.exists(out_mp4):
             messagebox.showwarning("MP4 Not Found", f"File '{out_mp4}' does not exist yet.")
             return
-        threading.Thread(target=self._worker_verify_only, args=(out_mp4,), daemon=True).start()
+        max_dur = self._get_max_duration()
+        threading.Thread(target=self._worker_verify_only, args=(out_mp4, max_dur), daemon=True).start()
 
-    def _worker_verify_only(self, out_mp4: str):
+    def _worker_verify_only(self, out_mp4: str, max_dur: int):
         try:
             self.set_progress(50, "Running 7-Point Verification Suite...")
             ref_profile = analyze_reference_video(self._get_selected_reference_path(), self.log)
             w, h = self._resolve_dimensions(ref_profile)
-            res = run_verification_suite(out_mp4, None, w, h, self.log)
+            res = run_verification_suite(out_mp4, None, w, h, self.log, max_duration=max_dur)
             self.set_progress(100, f"Verified: {res['passed']}/{res['total']} Passed!")
             self.after(0, lambda: messagebox.showinfo("Verification Passed", f"All {res['passed']}/{res['total']} checks passed!\nDuration: {res['duration']:.3f}s\nFrames: {res['frames']}"))
         except Exception as e:
@@ -2573,31 +3661,51 @@ class NalarkaStudioApp(tk.Tk):
             messagebox.showwarning("No Voiceover File", "Please specify a voiceover audio file path.")
             return
         self.btn_render.config(state=tk.DISABLED)
-        threading.Thread(target=self._worker_full_render, daemon=True).start()
+        max_dur = self._get_max_duration()
+        workers = self._get_workers()
+        threading.Thread(target=self._worker_full_render, args=(max_dur, workers), daemon=True).start()
 
-    def _worker_full_render(self):
+    def _worker_full_render(self, max_dur: int, workers: int):
         try:
             vo_path = self.vo_path_var.get().strip()
             raw_script_editor = self.script_text.get("1.0", tk.END).strip()
             _, parsed_sections = parse_tagged_script(raw_script_editor)
+            if max_dur > MAX_DURATION:
+                self.log(f"[EXTENDED MODE] Duration cap {max_dur}s (> {MAX_DURATION}s Nalarka spec). {workers} render worker(s).")
+
+            # Guard: an audio file generated from a DIFFERENT script would silently mismatch the storyboard.
+            sidecar = vo_path + ".script.sha1"
+            if raw_script_editor and os.path.exists(vo_path) and os.path.exists(sidecar):
+                try:
+                    with open(sidecar, "r", encoding="utf-8") as f:
+                        saved_fp = f.read().strip()
+                except OSError:
+                    saved_fp = ""
+                if saved_fp and saved_fp != script_fingerprint(raw_script_editor):
+                    raise ValueError(
+                        f"HARD STOP: '{vo_path}' was generated from a different script than the one in the editor. "
+                        "Click 'Generate Voiceover Audio Now' to regenerate it, or delete "
+                        f"'{os.path.basename(sidecar)}' if you want to keep using this audio as is."
+                    )
 
             if not os.path.exists(vo_path):
                 if not raw_script_editor:
                     raise FileNotFoundError(f"Voiceover file '{vo_path}' not found and script editor is empty.")
                 self.log(f"[AUTO-TTS] '{vo_path}' not found. Synthesizing via {self.tts_provider_var.get()}...")
+                check_script_fits(raw_script_editor, max_dur, self.log)   # refuse BEFORE spending TTS credits
                 self.set_progress(8, "Generating voiceover audio...")
                 self._synthesize_voiceover_now(raw_script_editor, vo_path)
 
             self.set_progress(15, "Measuring voiceover duration (ffprobe)...")
             vo_dur = get_audio_duration(vo_path, self.log)
-            total_dur = math.ceil(vo_dur + 2.5)
+            total_dur = math.ceil(vo_dur + INTRO_OUTRO_SECONDS)
             total_frames = total_dur * FPS
             self.log(f"[DURATION] Voiceover = {vo_dur:.2f}s | Locked Video Target = {total_dur}s ({total_frames} frames @ {FPS}fps)")
 
-            if total_dur > MAX_DURATION:
+            if total_dur > max_dur:
                 raise ValueError(
-                    f"HARD STOP: Calculated video duration ({total_dur}s) exceeds the {MAX_DURATION}s maximum limit! "
-                    "Please shorten the script or voiceover."
+                    f"HARD STOP: Calculated video duration ({total_dur}s) exceeds the {max_dur}s cap! "
+                    "Shorten the script or voiceover, or raise 'Max video duration' in Section 2A."
                 )
 
             self.set_progress(22, "Loading Selected Reference from Library...")
@@ -2606,7 +3714,10 @@ class NalarkaStudioApp(tk.Tk):
             width, height = self._resolve_dimensions(ref_profile)
 
             self.set_progress(32, "Extracting word timestamps (Faster-Whisper)...")
-            words = extract_word_timestamps(vo_path, self.whisper_var.get(), self.log)
+            words = extract_word_timestamps(
+                vo_path, self.whisper_var.get(), self.log,
+                language="en" if "English" in self.lang_var.get() else "id"
+            )
             self.current_words = words
 
             coder_model = self.coder_model_var.get().strip()
@@ -2637,7 +3748,8 @@ class NalarkaStudioApp(tk.Tk):
                 model=coder_model,
                 topic=topic_str,
                 log_fn=self.log,
-                max_retries=2
+                max_retries=2,
+                progress_fn=self.set_progress
             )
 
             self.current_plan = plan
@@ -2669,11 +3781,12 @@ class NalarkaStudioApp(tk.Tk):
                 width=width,
                 height=height,
                 log_fn=self.log,
-                progress_fn=self.set_progress
+                progress_fn=self.set_progress,
+                workers=workers
             )
 
             self.set_progress(96, "Running 7-Point Verification Suite...")
-            ver_res = run_verification_suite(out_mp4, total_dur, width, height, self.log)
+            ver_res = run_verification_suite(out_mp4, total_dur, width, height, self.log, max_duration=max_dur)
             self.set_progress(100, f"Completed & Verified! ({out_mp4})")
             self.after(
                 0,
@@ -2696,5 +3809,6 @@ class NalarkaStudioApp(tk.Tk):
 
 
 if __name__ == "__main__":
+    multiprocessing.freeze_support()   # required for spawned render workers on Windows / frozen builds
     app = NalarkaStudioApp()
     app.mainloop()
