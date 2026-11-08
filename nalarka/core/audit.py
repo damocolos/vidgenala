@@ -1,7 +1,9 @@
 """Self-correction loop (complexity, motion, and anti-repetition audit)."""
 import re
 import json
-from typing import Tuple, Optional, List, Dict, Any
+import threading
+from pathlib import Path
+from typing import Tuple, Optional, List, Dict, Any, Union
 import numpy as np
 from PIL import Image
 
@@ -96,6 +98,8 @@ def audit_and_fix_beats(
     log_fn,
     max_retries: int = 2,
     progress_fn=None,
+    cancel_event: Optional[threading.Event] = None,
+    scene_module_path: Optional[Union[str, Path]] = None,
 ):
     scenes = plan.get("scenes", [])
     log_fn(f"[SELF-CORRECTION LOOP v8.1] Auditing {len(scenes)} beats for complexity, motion & anti-repetition...")
@@ -103,6 +107,8 @@ def audit_and_fix_beats(
     prev_stage_crop: Optional[np.ndarray] = None
 
     for idx, beat in enumerate(scenes):
+        if cancel_event is not None and cancel_event.is_set():
+            raise InterruptedError("Audit loop cancelled.")
         if progress_fn:
             progress_fn(62 + int(8 * idx / max(1, len(scenes))), f"Auditing beat {idx + 1}/{len(scenes)}...")
         st, en = float(beat["start"]), float(beat["end"])
@@ -112,6 +118,8 @@ def audit_and_fix_beats(
         t_late = st + dur * 0.88
 
         for attempt in range(max_retries + 1):
+            if cancel_event is not None and cancel_event.is_set():
+                raise InterruptedError("Audit loop cancelled.")
             img1, v1, err1 = render_single_beat_canvas(t_early, beat, idx, width, height, palette, words, namespace)
             img2, v2, err2 = render_single_beat_canvas(t_mid, beat, idx, width, height, palette, words, namespace)
             img3, v3, err3 = render_single_beat_canvas(t_late, beat, idx, width, height, palette, words, namespace)
@@ -165,7 +173,8 @@ def audit_and_fix_beats(
                 prev_stage_crop = cur_crop
                 log_fn(f"  [BEAT #{idx+1:02d} PROCEED] Max retries reached ({reason_str}).")
 
-    write_scene_module_file(plan)   # generated_scenes.py now reflects every rewrite
+    target_path = scene_module_path if scene_module_path else "generated_scenes.py"
+    write_scene_module_file(plan, path=target_path)   # generated_scenes.py now reflects every rewrite
 
 
 

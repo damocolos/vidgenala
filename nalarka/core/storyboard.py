@@ -1,8 +1,10 @@
 """Storyboard planning (Pass 1) and batched vector code generation (Pass 2)."""
 import math
 import json
+import threading
+from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
-from typing import List, Dict, Tuple, Any, Optional
+from typing import List, Dict, Tuple, Any, Optional, Union
 
 from .constants import (
     MIN_BEAT_SECONDS, PASS1_WINDOW_SECONDS, PASS2_BATCH_BEATS,
@@ -177,12 +179,15 @@ def generate_scene_code_batches(
     plan: dict,
     namespace: Dict[str, Any],
     log_fn,
+    cancel_event: Optional[threading.Event] = None,
 ):
     """PASS 2. Beats are coded in small batches (several calls in parallel) so output limits are never hit."""
     batches = [(i, min(i + PASS2_BATCH_BEATS, len(scenes))) for i in range(0, len(scenes), PASS2_BATCH_BEATS)]
     log_fn(f"[PASS 2/2: VECTOR ARTIST] Coding {len(scenes)} beats in {len(batches)} batch(es), {PASS2_PARALLEL_CALLS} call(s) in parallel...")
 
     def _run(span: Tuple[int, int]) -> Tuple[Tuple[int, int], Optional[str]]:
+        if cancel_event is not None and cancel_event.is_set():
+            return span, None
         lo, hi = span
         first_fn, last_fn = f"beat_{lo + 1:02d}", f"beat_{hi:02d}"
         p2_sys = PASS2_PYTHON_VECTOR_ARTIST_PROMPT.format(first_fn=first_fn, last_fn=last_fn)
@@ -213,6 +218,9 @@ def generate_scene_code_batches(
     with ThreadPoolExecutor(max_workers=max(1, PASS2_PARALLEL_CALLS)) as pool:
         results = list(pool.map(_run, batches))
 
+    if cancel_event is not None and cancel_event.is_set():
+        raise InterruptedError("Batch code generation cancelled.")
+
     for (lo, hi), code in results:   # registered in order, on this thread (no races on `plan`)
         if code:
             loaded = add_generated_code(plan, namespace, code, log_fn)
@@ -230,10 +238,16 @@ def generate_two_pass_storyboard_and_code(
     words: List[dict],
     total_dur: int,
     ref_profile: dict,
-    log_fn
+    log_fn,
+    cancel_event: Optional[threading.Event] = None,
+    scene_module_path: Optional[Union[str, Path]] = None,
 ) -> Tuple[dict, Dict[str, Any]]:
+    if cancel_event is not None and cancel_event.is_set():
+        raise InterruptedError("Operation was cancelled by user.")
     log_fn(f"[PASS 1/2: CREATIVE DIRECTOR] Planning topic-specific visual blueprints for '{topic}' ({total_dur}s)...")
     raw_scenes = plan_storyboard(base_url, api_key, model, topic, sections, words, total_dur, log_fn)
+    if cancel_event is not None and cancel_event.is_set():
+        raise InterruptedError("Operation was cancelled by user.")
     scenes = sanitize_scenes(raw_scenes, total_dur, log_fn)
 
     plan: Dict[str, Any] = {"scenes": scenes, "palette": ref_profile["palette"], "total_duration": total_dur}
@@ -242,8 +256,12 @@ def generate_two_pass_storyboard_and_code(
         log_fn(f"  Beat #{s['beat_id']:02d} [{s['start']:05.1f}s-{s['end']:05.1f}s] ({s.get('layout')}, {s.get('bg_color')}, {s.get('transition')}): {s.get('visual_blueprint')}")
 
     namespace = new_scene_namespace()
-    generate_scene_code_batches(base_url, api_key, model, topic, scenes, plan, namespace, log_fn)
-    write_scene_module_file(plan)
+    generate_scene_code_batches(
+        base_url, api_key, model, topic, scenes, plan, namespace, log_fn,
+        cancel_event=cancel_event
+    )
+    target_path = scene_module_path if scene_module_path else "generated_scenes.py"
+    write_scene_module_file(plan, path=target_path)
     return plan, namespace
 
 

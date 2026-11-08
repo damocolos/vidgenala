@@ -5,7 +5,8 @@ import time
 import threading
 import subprocess
 import multiprocessing
-from typing import Dict, Any, List, Optional
+from pathlib import Path
+from typing import Dict, Any, List, Optional, Union
 
 from .constants import FPS, FFMPEG_LOG_FILE
 from .scene_code import build_namespace, new_scene_sources
@@ -56,6 +57,8 @@ def render_video_pipeline(
     log_fn,
     progress_fn,
     workers: int = 1,
+    ffmpeg_log_path: Optional[Union[str, Path]] = None,
+    cancel_event: Optional[threading.Event] = None,
 ):
     total_frames = total_dur * FPS
     fade_st = max(0.0, round(total_dur - 2.5, 2))
@@ -117,9 +120,9 @@ def render_video_pipeline(
     def _task_ids():
         for i in range(total_frames):
             while not sem.acquire(timeout=0.5):
-                if stop.is_set():
+                if stop.is_set() or (cancel_event and cancel_event.is_set()):
                     return
-            if stop.is_set():
+            if stop.is_set() or (cancel_event and cancel_event.is_set()):
                 return
             yield i
 
@@ -135,11 +138,16 @@ def render_video_pipeline(
     t0 = time.time()
     written = 0
     pipe_broken = False
+    actual_log = Path(ffmpeg_log_path) if ffmpeg_log_path else Path(FFMPEG_LOG_FILE)
+    actual_log.parent.mkdir(parents=True, exist_ok=True)
 
-    with open(FFMPEG_LOG_FILE, "w", encoding="utf-8") as ff_err:
+    with open(actual_log, "w", encoding="utf-8") as ff_err:
         proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stderr=ff_err)
         try:
             for frame_idx, data in enumerate(frames_iter):
+                if cancel_event and cancel_event.is_set():
+                    log_fn("[RENDER] Cancellation requested, stopping render...")
+                    break
                 if sem:
                     sem.release()
                 try:
@@ -167,13 +175,24 @@ def render_video_pipeline(
                     proc.stdin.close()
             except OSError:
                 pass
+            if cancel_event and cancel_event.is_set():
+                try:
+                    proc.terminate()
+                except OSError:
+                    pass
             ret = proc.wait()
 
+    if cancel_event and cancel_event.is_set():
+        log_fn("[RENDER] Render was cancelled.")
+        raise InterruptedError("Render was cancelled.")
+
     if ret != 0 or pipe_broken or written != total_frames:
-        with open(FFMPEG_LOG_FILE, "r", encoding="utf-8", errors="replace") as f:
-            err_tail = f.read()[-1500:]
+        err_tail = ""
+        if actual_log.exists():
+            with open(actual_log, "r", encoding="utf-8", errors="replace") as f:
+                err_tail = f.read()[-1500:]
         log_fn(f"[FFMPEG ERROR] Exit code {ret}, frames written {written}/{total_frames}:\n{err_tail}")
-        raise RuntimeError(f"FFmpeg failed (exit code {ret}, {written}/{total_frames} frames). Check {FFMPEG_LOG_FILE}.")
+        raise RuntimeError(f"FFmpeg failed (exit code {ret}, {written}/{total_frames} frames). Check {actual_log}.")
 
     log_fn(f"[RENDER] Completed in {round(time.time() - t0, 2)}s -> {output_path}")
 

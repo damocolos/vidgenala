@@ -6,7 +6,7 @@ import json
 import shutil
 import subprocess
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Union
 import numpy as np
 from PIL import Image
 
@@ -18,7 +18,8 @@ def run_verification_suite(
     expected_w: int,
     expected_h: int,
     log_fn,
-    max_duration: int = DEFAULT_MAX_DURATION
+    max_duration: int = DEFAULT_MAX_DURATION,
+    check_dir: Optional[Union[str, Path]] = None,
 ) -> dict:
     if not os.path.exists(output_path):
         raise FileNotFoundError(f"Output MP4 file not found: {output_path}")
@@ -65,17 +66,17 @@ def run_verification_suite(
             if m:
                 max_vol = float(m.group(1))
 
-    check_dir = Path("check")
-    if check_dir.exists():
-        shutil.rmtree(check_dir)
-    check_dir.mkdir(parents=True, exist_ok=True)
+    resolved_check_dir = Path(check_dir) if check_dir is not None else Path("check")
+    if resolved_check_dir.exists():
+        shutil.rmtree(resolved_check_dir)
+    resolved_check_dir.mkdir(parents=True, exist_ok=True)
 
     last_ts = max(0.0, round(target_dur - 0.1, 2))
     subprocess.run(
-        ["ffmpeg", "-y", "-i", output_path, "-vf", f"fps=1/{max(2.0, target_dur / 15.0):.3f},scale=360:-1", str(check_dir / "check_%02d.png")],
+        ["ffmpeg", "-y", "-i", output_path, "-vf", f"fps=1/{max(2.0, target_dur / 15.0):.3f},scale=360:-1", str(resolved_check_dir / "check_%02d.png")],
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
     )
-    last_frame_path = str(check_dir / "last_frame.png")
+    last_frame_path = str(resolved_check_dir / "last_frame.png")
     subprocess.run(
         ["ffmpeg", "-y", "-ss", str(last_ts), "-i", output_path, "-frames:v", "1", last_frame_path],
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
@@ -86,7 +87,8 @@ def run_verification_suite(
         lf_arr = np.asarray(Image.open(last_frame_path).convert("RGB"), dtype=np.float32)
         last_frame_valid = float(np.std(lf_arr)) > 5.0
 
-    chk_files = sorted(check_dir.glob("check_*.png"))
+    sheet_path = None
+    chk_files = sorted(resolved_check_dir.glob("check_*.png"))
     if chk_files:
         thumbs = [Image.open(p).convert("RGB") for p in chk_files[:15]]
         cols = min(5, len(thumbs))
@@ -96,7 +98,8 @@ def run_verification_suite(
         for i, im_t in enumerate(thumbs):
             r, c = divmod(i, cols)
             sheet.paste(im_t, (c * tw, r * th))
-        sheet.save(str(check_dir / "verification_contact_sheet.jpg"), quality=90)
+        sheet_path = resolved_check_dir / "verification_contact_sheet.jpg"
+        sheet.save(str(sheet_path), quality=90)
 
     tests = [
         (
@@ -152,10 +155,18 @@ def run_verification_suite(
     except Exception:
         pass
 
-    log_fn(f"[VERIFICATION SUMMARY] Passed {passed_count}/{len(tests)} checks. Sheet: check/verification_contact_sheet.jpg")
+    sheet_str = str(sheet_path) if sheet_path else f"{resolved_check_dir}/verification_contact_sheet.jpg"
+    log_fn(f"[VERIFICATION SUMMARY] Passed {passed_count}/{len(tests)} checks. Sheet: {sheet_str}")
     if passed_count < len(tests):
         raise AssertionError(f"Verification Suite failed {len(tests) - passed_count} check(s).")
 
-    return {"passed": passed_count, "total": len(tests), "duration": fmt_dur, "frames": actual_frames}
+    return {
+        "passed": passed_count,
+        "total": len(tests),
+        "duration": fmt_dur,
+        "frames": actual_frames,
+        "check_dir": str(resolved_check_dir),
+        "contact_sheet": sheet_str if sheet_path and sheet_path.exists() else None,
+    }
 
 
