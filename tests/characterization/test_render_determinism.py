@@ -2,9 +2,11 @@ import json
 import hashlib
 from pathlib import Path
 import legacy.nalarka_local as leg
+from tests._golden import skip_unless_reference_fonts
 
 
 def test_golden_frame_determinism():
+    skip_unless_reference_fonts()
     golden_path = Path("tests/golden/frame_hashes.json")
     assert golden_path.exists(), "Golden hashes file missing"
     golden_data = json.loads(golden_path.read_text(encoding="utf-8"))

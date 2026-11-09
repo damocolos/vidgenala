@@ -18,7 +18,7 @@ router = APIRouter(tags=["Jobs & SSE"])
 @router.get("/jobs", response_model=List[JobResponse])
 def get_jobs_list(
     status: Optional[str] = Query(None),
-    limit: int = Query(50),
+    limit: int = Query(50, ge=1, le=500),
     conn: sqlite3.Connection = Depends(get_db_conn),
 ):
     if status == "active":
@@ -76,4 +76,4 @@ def cancel_job_endpoint(
     if not j:
         raise HTTPException(status_code=404, detail="Job not found.")
     ok = dispatcher.cancel_job(job_id)
-    return {"status": "ok", "canceled": ok}
+    return {"status": "ok", "canceled": ok, "job_status": (get_job(conn, job_id) or {}).get("status")}

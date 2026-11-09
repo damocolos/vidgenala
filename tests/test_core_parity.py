@@ -6,6 +6,7 @@ from PIL import Image
 
 import legacy.nalarka_local as leg
 import nalarka.core as core
+from tests._golden import skip_unless_reference_fonts
 
 
 def test_core_math_parity():
@@ -70,6 +71,7 @@ def test_core_storyboard_scenes_parity():
 
 
 def test_core_render_frame_golden_parity():
+    skip_unless_reference_fonts()
     golden_path = Path("tests/golden/frame_hashes.json")
     golden_data = json.loads(golden_path.read_text(encoding="utf-8"))
     w, h = golden_data["width"], golden_data["height"]

@@ -121,7 +121,13 @@ def topic_studio(topic_id: int, request: Request, conn: sqlite3.Connection = Dep
 
     # Library items
     ref_items = list_library_items(conn, kind="reference")
-    selected_ref = get_setting(conn, "selected_reference", "")
+    # Stored under library.selected_reference_id; may hold an id, filename or path (legacy imports).
+    stored_ref = str(get_setting(conn, "library.selected_reference_id", "") or "")
+    selected_ref = next(
+        (r["file_path"] for r in ref_items
+         if stored_ref and stored_ref in (r["file_path"], r["filename"], str(r["id"]))),
+        "",
+    )
 
     # Storyboard & Beats
     sb = get_current_storyboard(conn, topic_id)

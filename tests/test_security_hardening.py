@@ -364,3 +364,53 @@ def test_data_dir_env_drives_default_db(tmp_path, monkeypatch):
     monkeypatch.setenv("NALARKA_DATA_DIR", str(tmp_path / "d"))
     assert get_db_path() == (tmp_path / "d").resolve() / "nalarka.db"
 
+
+
+# =================== patch 4 ===================
+from nalarka.core.scene_code import validate_scene_source
+
+
+def test_scene_validator_blocks_format_dunder_and_file_writes():
+    assert validate_scene_source('def beat_01(v):\n    s = "{0.__class__}".format(v)\n')
+    assert validate_scene_source('def beat_01(v):\n    v.img.save("/tmp/x.png")\n')
+    assert validate_scene_source('def beat_01(v):\n    f = v.fp\n')
+    # legitimate code stays valid (blanks like "____" in quiz text, f-strings, normal drawing)
+    assert validate_scene_source('def beat_01(v):\n    t = "Isi: ____ dan {}".format(3)\n    u = f"{1+1}"\n') is None
+
+
+def test_cancel_job_does_not_rewrite_finished_jobs(tmp_path):
+    import nalarka.jobs.dispatcher as d
+    from nalarka.db.repos.jobs import update_job_status
+    p = tmp_path / "c.db"
+    c = get_connection(p); run_migrations(c); seed_defaults(c)
+    create_job(c, "done-1", kind="scan_library", weight="light", params={})
+    update_job_status(c, "done-1", status="succeeded", finished_at="2026-01-01 00:00:00")
+    create_job(c, "q-1", kind="scan_library", weight="light", params={})
+    c.close()
+    disp = d.JobDispatcher(db_path=str(p))
+    assert disp.cancel_job("done-1") is False
+    assert disp.cancel_job("nope") is False
+    assert disp.cancel_job("q-1") is True
+    c = get_connection(p)
+    assert get_job(c, "done-1")["status"] == "succeeded"
+    assert get_job(c, "q-1")["status"] == "canceled"
+    c.close()
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX process groups")
+def test_cancel_running_job_after_restart_kills_by_pid(tmp_path):
+    """Dispatcher lost its Popen (server restart/reload): cancel must still stop the worker."""
+    import nalarka.jobs.dispatcher as d
+    from nalarka.db.repos.jobs import update_job_status
+    p = tmp_path / "r.db"
+    c = get_connection(p); run_migrations(c); seed_defaults(c)
+    create_job(c, "run-1", kind="scan_library", weight="light", params={})
+    proc = subprocess.Popen([sys.executable, "-c", "import time;time.sleep(60)"], **d._popen_group_kwargs())
+    update_job_status(c, "run-1", status="running", pid=proc.pid)
+    c.close()
+    disp = d.JobDispatcher(db_path=str(p))
+    assert disp.cancel_job("run-1") is True
+    deadline = time.time() + 5
+    while proc.poll() is None and time.time() < deadline:
+        time.sleep(0.05)
+    assert proc.poll() is not None

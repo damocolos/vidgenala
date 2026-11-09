@@ -24,6 +24,12 @@ _FORBIDDEN_NAMES = {
 }
 
 
+# Methods that would let drawing code write files via the objects it is handed (PIL images etc.).
+_FORBIDDEN_ATTRS = {"save", "tofile", "fp", "format_map"}
+# "{0.__class__}".format(x) reaches dunders without an ast.Attribute node.
+_FORMAT_DUNDER_RE = re.compile(r"\{[^}]*__")
+
+
 def validate_scene_source(src: str) -> Optional[str]:
     """
     Static gate for AI-written drawing code. Returns an error string, or None when acceptable.
@@ -43,8 +49,10 @@ def validate_scene_source(src: str) -> Optional[str]:
             return "'global' is not allowed"
         if isinstance(node, ast.Name) and (node.id.startswith("__") or node.id in _FORBIDDEN_NAMES):
             return f"name '{node.id}' is not allowed"
-        if isinstance(node, ast.Attribute) and node.attr.startswith("__"):
+        if isinstance(node, ast.Attribute) and (node.attr.startswith("__") or node.attr in _FORBIDDEN_ATTRS):
             return f"attribute '{node.attr}' is not allowed"
+        if isinstance(node, ast.Constant) and isinstance(node.value, str) and _FORMAT_DUNDER_RE.search(node.value):
+            return "format fields that reach dunder attributes are not allowed"
     return None
 
 

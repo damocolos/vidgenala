@@ -72,7 +72,7 @@ def trigger_full_render(
 @router.get("/renders", response_model=List[RenderResponse])
 def get_renders_list(
     topic_id: Optional[int] = Query(None),
-    limit: int = Query(50),
+    limit: int = Query(50, ge=1, le=500),
     conn: sqlite3.Connection = Depends(get_db_conn),
 ):
     if topic_id:

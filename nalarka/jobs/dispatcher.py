@@ -228,18 +228,43 @@ class JobDispatcher:
             except Exception:
                 pass
 
+    def _kill_by_pid(self, pid: int) -> None:
+        """Fallback when this dispatcher no longer holds the Popen (e.g. after a server restart)."""
+        if not pid or pid <= 0 or not self.is_pid_alive(pid):
+            return
+        try:
+            if os.name == "nt":
+                subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], capture_output=True, timeout=10)
+                return
+            import signal
+            if os.getpgid(pid) != pid:  # only groups we created (guards against PID reuse)
+                return
+            os.killpg(pid, signal.SIGTERM)
+            time.sleep(1.0)
+            try:
+                os.killpg(pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+        except Exception:
+            pass
+
     def cancel_job(self, job_id: str) -> bool:
-        """Cancels a job and terminates its subprocess if currently running."""
+        """Cancels a queued/running job and kills its process tree.
+
+        Returns False when the job does not exist or already finished (a completed job
+        must never be rewritten as 'canceled')."""
         conn = self._get_db()
         try:
             job = get_job(conn, job_id)
-            if not job:
+            if not job or job["status"] not in ("queued", "running"):
                 return False
 
             with self._lock:
                 proc = self._running_procs.pop(job_id, None)
-                if proc:
-                    kill_process_tree(proc)
+            if proc:
+                kill_process_tree(proc)
+            elif job["status"] == "running":
+                self._kill_by_pid(job.get("pid") or 0)
 
             update_job_status(
                 conn, job_id, status="canceled",

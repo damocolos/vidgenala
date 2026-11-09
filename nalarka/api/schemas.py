@@ -18,7 +18,7 @@ class ProviderResponse(BaseModel):
 
 class UpdateProviderRequest(BaseModel):
     label: Optional[str] = None
-    base_url: Optional[str] = None
+    base_url: Optional[str] = Field(None, pattern=r"^https?://\S+$")
     api_key: Optional[str] = None
     coder_model: Optional[str] = None
     script_model: Optional[str] = None
@@ -122,11 +122,11 @@ class CreateRenderRequest(BaseModel):
     voiceover_id: Optional[int] = None
     vo_path: Optional[str] = None
     ref_path: Optional[str] = None
-    orientation: Optional[str] = "Match Reference"
-    whisper_size: Optional[str] = "base"
+    orientation: Optional[str] = Field("Match Reference", pattern=r"^(Match Reference|\d{3,4}x\d{3,4})$")
+    whisper_size: Optional[str] = Field("base", pattern=r"^(tiny|base|small|medium)$")
     synth_bgm: Optional[bool] = True
     bgm_path: Optional[str] = None
-    workers: Optional[int] = None
+    workers: Optional[int] = Field(None, ge=1, le=16)
     output_name: Optional[str] = "output_motion_graphic.mp4"
     storyboard_id: Optional[int] = None
     reuse_storyboard: Optional[bool] = True
