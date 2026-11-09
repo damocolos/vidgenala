@@ -150,3 +150,65 @@ def test_stop_unwinds_through_parallel_batch_pool():
     with pytest.raises(ProviderCircuitOpen):
         with ThreadPoolExecutor(max_workers=3) as pool:
             list(pool.map(worker, [1, 2, 3]))
+
+
+# =================== configurable code batches ===================
+def _scenes(n):
+    return [{"beat_id": i + 1, "start": i * 4.0, "end": i * 4.0 + 4, "bg_color": "cream",
+             "layout": "top_text_bottom_art", "summary": "s", "visual_blueprint": "b"} for i in range(n)]
+
+
+def _run_pass2(monkeypatch, n_beats, **kw):
+    import nalarka.core.storyboard as sb
+    spans, threads = [], set()
+    import threading
+
+    def fake_code(base_url, api_key, model, sys_p, user_p, log_fn, **k):
+        threads.add(threading.get_ident())
+        import re
+        m = re.search(r"`(beat_\d+)\(v\)` through `(beat_\d+)\(v\)`", user_p)
+        spans.append((m.group(1), m.group(2)))
+        return ""
+    monkeypatch.setattr(sb, "call_ai_python_code", fake_code)
+    logs = []
+    sb.generate_scene_code_batches("u", "k", "m", "topic", _scenes(n_beats), {}, {}, logs.append, **kw)
+    return sorted(spans), logs
+
+
+def test_batch_size_is_configurable(monkeypatch):
+    spans, logs = _run_pass2(monkeypatch, 11)                       # default: 6 per request
+    assert spans == [("beat_01", "beat_06"), ("beat_07", "beat_11")]
+    spans, logs = _run_pass2(monkeypatch, 11, batch_beats=2, parallel_calls=1)
+    assert len(spans) == 6 and spans[0] == ("beat_01", "beat_02") and spans[-1] == ("beat_11", "beat_11")
+    assert "of up to 2 beat(s), 1 call(s) in parallel" in " ".join(logs)
+    spans, _ = _run_pass2(monkeypatch, 3, batch_beats=1)
+    assert spans == [("beat_01", "beat_01"), ("beat_02", "beat_02"), ("beat_03", "beat_03")]
+    spans, _ = _run_pass2(monkeypatch, 4, batch_beats=0)            # nonsense falls back, never crashes
+    assert spans
+
+
+def test_batch_settings_validated():
+    from nalarka.services.settings_validation import validate_settings
+    ok, err = validate_settings({"ai.batch_beats": "0", "ai.parallel_calls": 99})
+    assert not err and ok == {"ai.batch_beats": 1, "ai.parallel_calls": 6}
+
+
+def test_resume_override_and_snapshot_through_api(tmp_path, monkeypatch):
+    pytest.importorskip("fastapi"); pytest.importorskip("httpx")
+    from fastapi.testclient import TestClient
+    from nalarka.api.main import create_app
+    from nalarka.db.repos.jobs import update_job_status
+    p = tmp_path / "r.db"
+    c = get_connection(str(p)); run_migrations(c); seed_defaults(c)
+    create_job(c, "render-x", "scan_library", "light", {"batch_beats": 6})
+    update_job_status(c, "render-x", status="failed", error="Stopped")
+    c.close()
+    monkeypatch.setenv("NALARKA_DB_PATH", str(p))
+    monkeypatch.setenv("NALARKA_DATA_DIR", str(tmp_path / "data"))
+    with TestClient(create_app()) as tc:
+        r = tc.post("/api/jobs/render-x/resume", json={"batch_beats": 3})
+        assert r.status_code == 202
+        new_id = r.json()["job_id"]
+        assert tc.get(f"/api/jobs/{new_id}").json()["params"]["batch_beats"] == 3
+        r2 = tc.post("/api/jobs/render-x/resume", json={"batch_beats": 99})
+        assert r2.status_code == 422

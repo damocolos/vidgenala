@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Header, Query, Request, s
 from fastapi.responses import StreamingResponse
 
 from ..deps import get_db_conn, get_dispatcher
-from ..schemas import JobResponse
+from ..schemas import JobResponse, ResumeRequest
 import uuid
 from ...db.repos.jobs import (
     get_job, list_jobs, list_active_jobs, get_job_events, create_job, has_active_resume,
@@ -106,6 +106,7 @@ def get_job_log(
 @router.post("/jobs/{job_id}/resume", status_code=status.HTTP_202_ACCEPTED)
 def resume_job(
     job_id: str,
+    req: Optional[ResumeRequest] = None,
     conn: sqlite3.Connection = Depends(get_db_conn),
     dispatcher=Depends(get_dispatcher),
 ):
@@ -120,6 +121,12 @@ def resume_job(
         raise HTTPException(status_code=409, detail="This job is already being resumed.")
     params = dict(j["params"])
     params["resume_of"] = job_id
+    if req is not None:
+        # Smaller code batches: the storyboard plan still replays; code requests are asked again, shorter.
+        if req.batch_beats:
+            params["batch_beats"] = req.batch_beats
+        if req.parallel_calls:
+            params["parallel_calls"] = req.parallel_calls
     new_id = f"resume-{uuid.uuid4().hex[:8]}"
     create_job(conn, new_id, kind=j["kind"], weight=j["weight"], params=params, topic_id=j.get("topic_id"))
     dispatcher.dispatch_next()

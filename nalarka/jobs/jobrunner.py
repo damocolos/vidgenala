@@ -305,6 +305,8 @@ def run_job(job_id: str, db_path: Optional[str] = None) -> int:
             bgm_path = params.get("bgm_path")
             synth_bgm = params.get("synth_bgm", get_setting(conn, "render.synth_bgm", True))
             workers = params.get("workers", get_setting(conn, "render.workers", None))
+            batch_beats = params.get("batch_beats") or _int_setting("ai.batch_beats", 6)
+            parallel_calls = params.get("parallel_calls") or _int_setting("ai.parallel_calls", 3)
             out_mp4 = workdir / safe_output_name(params.get("output_name") or get_setting(conn, "render.output_name", "output_motion_graphic.mp4"))
 
             # Create render record
@@ -391,6 +393,8 @@ def run_job(job_id: str, db_path: Optional[str] = None) -> int:
                 bgm_path=bgm_path,
                 synth_bgm=synth_bgm,
                 workers=workers,
+                batch_beats=batch_beats,
+                parallel_calls=parallel_calls,
                 output_mp4_path=out_mp4,
                 check_script_fingerprint=bool(vo_data and vo_data.get("script_fingerprint")),
                 existing_plan=existing_plan,

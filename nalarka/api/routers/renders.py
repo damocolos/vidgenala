@@ -26,6 +26,13 @@ from ...db.repos.settings import get_setting
 from ...services.paths import media_roots, resolve_media_path, safe_output_name, is_within
 
 
+def _int_setting(conn, key, default):
+    try:
+        return int(get_setting(conn, key, default))
+    except (TypeError, ValueError):
+        return default
+
+
 def _checked_media(conn, raw):
     if raw is None or str(raw).strip() == "":
         return None
@@ -60,6 +67,9 @@ def trigger_full_render(
             "synth_bgm": req.synth_bgm,
             "bgm_path": _checked_media(conn, req.bgm_path),
             "workers": req.workers,
+            # Snapshot, so a Resume asks the provider for exactly the same requests (saved answers replay).
+            "batch_beats": req.batch_beats or _int_setting(conn, "ai.batch_beats", 6),
+            "parallel_calls": req.parallel_calls or _int_setting(conn, "ai.parallel_calls", 3),
             "output_name": safe_output_name(req.output_name),
             "storyboard_id": req.storyboard_id,
             "reuse_storyboard": req.reuse_storyboard,

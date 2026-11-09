@@ -97,6 +97,29 @@
       </form>
     </div>
 
+    <!-- AI code batches -->
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">Vector code requests</div>
+      </div>
+      <p class="text-muted" style="font-size:.85rem;margin-bottom:1rem;">
+        The vector artist writes the drawing code for several beats per AI request. Smaller requests return shorter answers,
+        which helps when a provider or proxy cuts long responses (for example a 120 second gateway timeout).
+        1 beat per request is the slowest but the most reliable.
+      </p>
+      <form onsubmit="saveStopPoint(event)">
+        <div class="form-group">
+          <label for="sp-batch">Beats per request</label>
+          <input type="number" id="sp-batch" min="1" max="12" placeholder="6">
+        </div>
+        <div class="form-group">
+          <label for="sp-parallel">Requests at the same time</label>
+          <input type="number" id="sp-parallel" min="1" max="6" placeholder="3">
+        </div>
+        <button type="submit" class="btn btn-primary btn-sm">Save</button>
+      </form>
+    </div>
+
     <!-- AI stop point -->
     <div class="card">
       <div class="card-header">
@@ -148,7 +171,8 @@
 </div>
 
 <script>
-const STOP_KEYS = {"sp-consecutive": "ai.max_consecutive_failures", "sp-total": "ai.max_total_failures", "sp-minutes": "ai.max_minutes_per_run"};
+const STOP_KEYS = {"sp-consecutive": "ai.max_consecutive_failures", "sp-total": "ai.max_total_failures", "sp-minutes": "ai.max_minutes_per_run",
+  "sp-batch": "ai.batch_beats", "sp-parallel": "ai.parallel_calls"};
 async function loadStopPoint() {
   try {
     const cfg = await (await fetch('/api/config')).json();
@@ -161,9 +185,12 @@ async function loadStopPoint() {
 async function saveStopPoint(e) {
   e.preventDefault();
   const settings = {};
-  for (const [id, key] of Object.entries(STOP_KEYS)) settings[key] = document.getElementById(id).value;
+  for (const [id, key] of Object.entries(STOP_KEYS)) {
+    const el = document.getElementById(id);
+    if (el && e.target.contains(el) && el.value !== '') settings[key] = el.value;
+  }
   const res = await fetch('/api/config', {method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({settings})});
-  if (res.ok) showToast('Limits saved. They apply to the next job you start.', 'success');
+  if (res.ok) showToast('Saved. It applies to the next job you start.', 'success');
   else showToast('Could not save limits: ' + ((await res.json().catch(() => ({}))).detail || res.status), 'error');
 }
 loadStopPoint();

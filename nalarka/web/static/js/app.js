@@ -522,6 +522,7 @@ async function refreshJobList(selectFirst = false) {
         <div style="min-width:0"><div class="jt">${escapeHtml(KIND_LABEL[j.kind] || j.kind)}${j.topic_id ? ` · topic ${j.topic_id}` : ""}</div>
           <div class="js">${escapeHtml((j.created_at || "").slice(5, 16))} · ${j.progress ?? 0}% ${j.status_text ? "· " + escapeHtml(String(j.status_text).slice(0, 40)) : ""}</div></div>
         <div style="display:flex;gap:.35rem;align-items:center;">${statusBadge(j.status)}
+          ${resumable && j.kind === "full_render" && (j.params?.batch_beats || 6) > 1 ? `<button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();resumeJob('${j.id}', ${Math.ceil((j.params?.batch_beats || 6) / 2)})" title="Resume, but ask the AI for ${Math.ceil((j.params?.batch_beats || 6) / 2)} beat(s) per request instead of ${j.params?.batch_beats || 6}. The storyboard plan is reused; code requests are asked again in smaller pieces.">Resume smaller</button>` : ""}
           ${resumable ? `<button class="btn btn-primary btn-sm" onclick="event.stopPropagation();resumeJob('${j.id}')" title="Re-run this job. Saved AI answers are reused, so you only pay for what is missing.">Resume</button>` : ""}
           ${cancellable ? `<button class="btn btn-danger btn-sm" onclick="event.stopPropagation();cancelJob('${j.id}')">Cancel</button>` : ""}</div></div>`;
     }).join("");
@@ -571,9 +572,14 @@ async function loadDrawerAi(jobId) {
     }).join("") + `</tbody></table></div>`;
 }
 
-async function resumeJob(jobId) {
+async function resumeJob(jobId, batchBeats) {
   try {
-    const res = await fetch(`/api/jobs/${jobId}/resume`, { method: "POST" });
+    const opts = { method: "POST" };
+    if (batchBeats) {
+      opts.headers = { "Content-Type": "application/json" };
+      opts.body = JSON.stringify({ batch_beats: batchBeats });
+    }
+    const res = await fetch(`/api/jobs/${jobId}/resume`, opts);
     const d = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(d.detail || "Could not resume");
     showToast("Resumed. Saved AI answers are reused, so only missing steps are billed.", "success");

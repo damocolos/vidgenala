@@ -1,0 +1,357 @@
+diff -ruN a/nalarka/api/routers/jobs.py b/nalarka/api/routers/jobs.py
+--- a/nalarka/api/routers/jobs.py	2026-11-10 05:35:48.732373224 +0700
++++ b/nalarka/api/routers/jobs.py	2026-11-10 05:36:08.321105200 +0700
+@@ -5,7 +5,7 @@
+ from fastapi.responses import StreamingResponse
+ 
+ from ..deps import get_db_conn, get_dispatcher
+-from ..schemas import JobResponse
++from ..schemas import JobResponse, ResumeRequest
+ import uuid
+ from ...db.repos.jobs import (
+     get_job, list_jobs, list_active_jobs, get_job_events, create_job, has_active_resume,
+@@ -106,6 +106,7 @@
+ @router.post("/jobs/{job_id}/resume", status_code=status.HTTP_202_ACCEPTED)
+ def resume_job(
+     job_id: str,
++    req: Optional[ResumeRequest] = None,
+     conn: sqlite3.Connection = Depends(get_db_conn),
+     dispatcher=Depends(get_dispatcher),
+ ):
+@@ -120,6 +121,12 @@
+         raise HTTPException(status_code=409, detail="This job is already being resumed.")
+     params = dict(j["params"])
+     params["resume_of"] = job_id
++    if req is not None:
++        # Smaller code batches: the storyboard plan still replays; code requests are asked again, shorter.
++        if req.batch_beats:
++            params["batch_beats"] = req.batch_beats
++        if req.parallel_calls:
++            params["parallel_calls"] = req.parallel_calls
+     new_id = f"resume-{uuid.uuid4().hex[:8]}"
+     create_job(conn, new_id, kind=j["kind"], weight=j["weight"], params=params, topic_id=j.get("topic_id"))
+     dispatcher.dispatch_next()
+diff -ruN a/nalarka/api/routers/renders.py b/nalarka/api/routers/renders.py
+--- a/nalarka/api/routers/renders.py	2026-11-10 05:35:48.732394265 +0700
++++ b/nalarka/api/routers/renders.py	2026-11-10 05:35:48.798589044 +0700
+@@ -26,6 +26,13 @@
+ from ...services.paths import media_roots, resolve_media_path, safe_output_name, is_within
+ 
+ 
++def _int_setting(conn, key, default):
++    try:
++        return int(get_setting(conn, key, default))
++    except (TypeError, ValueError):
++        return default
++
++
+ def _checked_media(conn, raw):
+     if raw is None or str(raw).strip() == "":
+         return None
+@@ -60,6 +67,9 @@
+             "synth_bgm": req.synth_bgm,
+             "bgm_path": _checked_media(conn, req.bgm_path),
+             "workers": req.workers,
++            # Snapshot, so a Resume asks the provider for exactly the same requests (saved answers replay).
++            "batch_beats": req.batch_beats or _int_setting(conn, "ai.batch_beats", 6),
++            "parallel_calls": req.parallel_calls or _int_setting(conn, "ai.parallel_calls", 3),
+             "output_name": safe_output_name(req.output_name),
+             "storyboard_id": req.storyboard_id,
+             "reuse_storyboard": req.reuse_storyboard,
+diff -ruN a/nalarka/api/schemas.py b/nalarka/api/schemas.py
+--- a/nalarka/api/schemas.py	2026-11-10 05:35:48.732425940 +0700
++++ b/nalarka/api/schemas.py	2026-11-10 05:35:48.798434724 +0700
+@@ -127,11 +127,19 @@
+     synth_bgm: Optional[bool] = True
+     bgm_path: Optional[str] = None
+     workers: Optional[int] = Field(None, ge=1, le=16)
++    batch_beats: Optional[int] = Field(None, ge=1, le=12)
++    parallel_calls: Optional[int] = Field(None, ge=1, le=6)
+     output_name: Optional[str] = "output_motion_graphic.mp4"
+     storyboard_id: Optional[int] = None
+     reuse_storyboard: Optional[bool] = True
+ 
+ 
++class ResumeRequest(BaseModel):
++    """Optional overrides when resuming (e.g. ask for smaller code batches)."""
++    batch_beats: Optional[int] = Field(None, ge=1, le=12)
++    parallel_calls: Optional[int] = Field(None, ge=1, le=6)
++
++
+ class RerollBeatRequest(BaseModel):
+     custom_note: Optional[str] = ""
+ 
+diff -ruN a/nalarka/core/storyboard.py b/nalarka/core/storyboard.py
+--- a/nalarka/core/storyboard.py	2026-11-10 05:35:48.732797509 +0700
++++ b/nalarka/core/storyboard.py	2026-11-10 05:35:48.796684618 +0700
+@@ -180,10 +180,17 @@
+     namespace: Dict[str, Any],
+     log_fn,
+     cancel_event: Optional[threading.Event] = None,
++    batch_beats: Optional[int] = None,
++    parallel_calls: Optional[int] = None,
+ ):
+-    """PASS 2. Beats are coded in small batches (several calls in parallel) so output limits are never hit."""
+-    batches = [(i, min(i + PASS2_BATCH_BEATS, len(scenes))) for i in range(0, len(scenes), PASS2_BATCH_BEATS)]
+-    log_fn(f"[PASS 2/2: VECTOR ARTIST] Coding {len(scenes)} beats in {len(batches)} batch(es), {PASS2_PARALLEL_CALLS} call(s) in parallel...")
++    """PASS 2. Beats are coded in small batches (several calls in parallel) so output limits are never hit.
++
++    ``batch_beats`` / ``parallel_calls`` override the defaults. Smaller batches mean shorter answers,
++    which helps providers or proxies that cut long responses (e.g. a 120 s gateway timeout)."""
++    size = max(1, int(batch_beats or PASS2_BATCH_BEATS))
++    workers = max(1, int(parallel_calls or PASS2_PARALLEL_CALLS))
++    batches = [(i, min(i + size, len(scenes))) for i in range(0, len(scenes), size)]
++    log_fn(f"[PASS 2/2: VECTOR ARTIST] Coding {len(scenes)} beats in {len(batches)} batch(es) of up to {size} beat(s), {workers} call(s) in parallel...")
+ 
+     def _run(span: Tuple[int, int]) -> Tuple[Tuple[int, int], Optional[str]]:
+         if cancel_event is not None and cancel_event.is_set():
+@@ -215,7 +222,7 @@
+             log_fn(f"[PASS 2 WARN] Batch {first_fn}-{last_fn} failed ({err}). The audit loop will rewrite these beats one by one.")
+             return span, None
+ 
+-    with ThreadPoolExecutor(max_workers=max(1, PASS2_PARALLEL_CALLS)) as pool:
++    with ThreadPoolExecutor(max_workers=workers) as pool:
+         results = list(pool.map(_run, batches))
+ 
+     if cancel_event is not None and cancel_event.is_set():
+@@ -241,6 +248,8 @@
+     log_fn,
+     cancel_event: Optional[threading.Event] = None,
+     scene_module_path: Optional[Union[str, Path]] = None,
++    batch_beats: Optional[int] = None,
++    parallel_calls: Optional[int] = None,
+ ) -> Tuple[dict, Dict[str, Any]]:
+     if cancel_event is not None and cancel_event.is_set():
+         raise InterruptedError("Operation was cancelled by user.")
+@@ -258,7 +267,7 @@
+     namespace = new_scene_namespace()
+     generate_scene_code_batches(
+         base_url, api_key, model, topic, scenes, plan, namespace, log_fn,
+-        cancel_event=cancel_event
++        cancel_event=cancel_event, batch_beats=batch_beats, parallel_calls=parallel_calls,
+     )
+     target_path = scene_module_path if scene_module_path else "generated_scenes.py"
+     write_scene_module_file(plan, path=target_path)
+diff -ruN a/nalarka/db/seed.py b/nalarka/db/seed.py
+--- a/nalarka/db/seed.py	2026-11-10 05:35:48.733839094 +0700
++++ b/nalarka/db/seed.py	2026-11-10 05:35:48.798109059 +0700
+@@ -30,6 +30,8 @@
+     ("tts.ssml_breaks", "false", "bool"),
+     ("library.dir", "references_library", "string"),
+     ("library.selected_reference_id", "", "string"),
++    ("ai.batch_beats", "6", "int"),
++    ("ai.parallel_calls", "3", "int"),
+     ("ai.max_consecutive_failures", "3", "int"),
+     ("ai.max_total_failures", "6", "int"),
+     ("ai.max_minutes_per_run", "45", "int"),
+diff -ruN a/nalarka/jobs/jobrunner.py b/nalarka/jobs/jobrunner.py
+--- a/nalarka/jobs/jobrunner.py	2026-11-10 05:35:48.733866673 +0700
++++ b/nalarka/jobs/jobrunner.py	2026-11-10 05:35:48.797818549 +0700
+@@ -305,6 +305,8 @@
+             bgm_path = params.get("bgm_path")
+             synth_bgm = params.get("synth_bgm", get_setting(conn, "render.synth_bgm", True))
+             workers = params.get("workers", get_setting(conn, "render.workers", None))
++            batch_beats = params.get("batch_beats") or _int_setting("ai.batch_beats", 6)
++            parallel_calls = params.get("parallel_calls") or _int_setting("ai.parallel_calls", 3)
+             out_mp4 = workdir / safe_output_name(params.get("output_name") or get_setting(conn, "render.output_name", "output_motion_graphic.mp4"))
+ 
+             # Create render record
+@@ -391,6 +393,8 @@
+                 bgm_path=bgm_path,
+                 synth_bgm=synth_bgm,
+                 workers=workers,
++                batch_beats=batch_beats,
++                parallel_calls=parallel_calls,
+                 output_mp4_path=out_mp4,
+                 check_script_fingerprint=bool(vo_data and vo_data.get("script_fingerprint")),
+                 existing_plan=existing_plan,
+diff -ruN a/nalarka/services/pipeline.py b/nalarka/services/pipeline.py
+--- a/nalarka/services/pipeline.py	2026-11-10 05:35:48.733985348 +0700
++++ b/nalarka/services/pipeline.py	2026-11-10 05:35:48.797482401 +0700
+@@ -255,6 +255,8 @@
+     existing_namespace: Optional[Dict[str, Any]] = None,
+     on_plan_ready: Optional[Callable[[dict, Dict[str, Any], List[dict]], None]] = None,
+     resume_workdir: Optional[Union[str, Path]] = None,
++    batch_beats: Optional[int] = None,
++    parallel_calls: Optional[int] = None,
+ ) -> dict:
+     """Executes full video generation pipeline from voiceover and script to verified MP4."""
+     ctx.check_cancelled()
+@@ -320,6 +322,8 @@
+             log_fn=ctx.log,
+             cancel_event=ctx.cancel_event,
+             scene_module_path=temp_scene_mod_path,
++            batch_beats=batch_beats,
++            parallel_calls=parallel_calls,
+         )
+ 
+     # Persist timeline plan JSON immediately BEFORE audit loop
+diff -ruN a/nalarka/services/settings_validation.py b/nalarka/services/settings_validation.py
+--- a/nalarka/services/settings_validation.py	2026-11-10 05:35:48.733949896 +0700
++++ b/nalarka/services/settings_validation.py	2026-11-10 05:35:48.798260979 +0700
+@@ -43,6 +43,10 @@
+             val = _coerce(vtype, v)
+             if k == "render.max_duration":
+                 val = max(15, min(900, val))
++            elif k == "ai.batch_beats":
++                val = max(1, min(12, val))
++            elif k == "ai.parallel_calls":
++                val = max(1, min(6, val))
+             elif k == "ai.max_consecutive_failures":
+                 val = max(0, min(20, val))
+             elif k == "ai.max_total_failures":
+diff -ruN a/nalarka/web/static/js/app.js b/nalarka/web/static/js/app.js
+--- a/nalarka/web/static/js/app.js	2026-11-10 05:35:48.734435569 +0700
++++ b/nalarka/web/static/js/app.js	2026-11-10 05:36:08.322279600 +0700
+@@ -522,6 +522,7 @@
+         <div style="min-width:0"><div class="jt">${escapeHtml(KIND_LABEL[j.kind] || j.kind)}${j.topic_id ? ` · topic ${j.topic_id}` : ""}</div>
+           <div class="js">${escapeHtml((j.created_at || "").slice(5, 16))} · ${j.progress ?? 0}% ${j.status_text ? "· " + escapeHtml(String(j.status_text).slice(0, 40)) : ""}</div></div>
+         <div style="display:flex;gap:.35rem;align-items:center;">${statusBadge(j.status)}
++          ${resumable && j.kind === "full_render" && (j.params?.batch_beats || 6) > 1 ? `<button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();resumeJob('${j.id}', ${Math.ceil((j.params?.batch_beats || 6) / 2)})" title="Resume, but ask the AI for ${Math.ceil((j.params?.batch_beats || 6) / 2)} beat(s) per request instead of ${j.params?.batch_beats || 6}. The storyboard plan is reused; code requests are asked again in smaller pieces.">Resume smaller</button>` : ""}
+           ${resumable ? `<button class="btn btn-primary btn-sm" onclick="event.stopPropagation();resumeJob('${j.id}')" title="Re-run this job. Saved AI answers are reused, so you only pay for what is missing.">Resume</button>` : ""}
+           ${cancellable ? `<button class="btn btn-danger btn-sm" onclick="event.stopPropagation();cancelJob('${j.id}')">Cancel</button>` : ""}</div></div>`;
+     }).join("");
+@@ -571,9 +572,14 @@
+     }).join("") + `</tbody></table></div>`;
+ }
+ 
+-async function resumeJob(jobId) {
++async function resumeJob(jobId, batchBeats) {
+   try {
+-    const res = await fetch(`/api/jobs/${jobId}/resume`, { method: "POST" });
++    const opts = { method: "POST" };
++    if (batchBeats) {
++      opts.headers = { "Content-Type": "application/json" };
++      opts.body = JSON.stringify({ batch_beats: batchBeats });
++    }
++    const res = await fetch(`/api/jobs/${jobId}/resume`, opts);
+     const d = await res.json().catch(() => ({}));
+     if (!res.ok) throw new Error(d.detail || "Could not resume");
+     showToast("Resumed. Saved AI answers are reused, so only missing steps are billed.", "success");
+diff -ruN a/nalarka/web/templates/settings.html b/nalarka/web/templates/settings.html
+--- a/nalarka/web/templates/settings.html	2026-11-10 05:35:48.736296548 +0700
++++ b/nalarka/web/templates/settings.html	2026-11-10 05:36:08.321872857 +0700
+@@ -97,6 +97,29 @@
+       </form>
+     </div>
+ 
++    <!-- AI code batches -->
++    <div class="card">
++      <div class="card-header">
++        <div class="card-title">Vector code requests</div>
++      </div>
++      <p class="text-muted" style="font-size:.85rem;margin-bottom:1rem;">
++        The vector artist writes the drawing code for several beats per AI request. Smaller requests return shorter answers,
++        which helps when a provider or proxy cuts long responses (for example a 120 second gateway timeout).
++        1 beat per request is the slowest but the most reliable.
++      </p>
++      <form onsubmit="saveStopPoint(event)">
++        <div class="form-group">
++          <label for="sp-batch">Beats per request</label>
++          <input type="number" id="sp-batch" min="1" max="12" placeholder="6">
++        </div>
++        <div class="form-group">
++          <label for="sp-parallel">Requests at the same time</label>
++          <input type="number" id="sp-parallel" min="1" max="6" placeholder="3">
++        </div>
++        <button type="submit" class="btn btn-primary btn-sm">Save</button>
++      </form>
++    </div>
++
+     <!-- AI stop point -->
+     <div class="card">
+       <div class="card-header">
+@@ -148,7 +171,8 @@
+ </div>
+ 
+ <script>
+-const STOP_KEYS = {"sp-consecutive": "ai.max_consecutive_failures", "sp-total": "ai.max_total_failures", "sp-minutes": "ai.max_minutes_per_run"};
++const STOP_KEYS = {"sp-consecutive": "ai.max_consecutive_failures", "sp-total": "ai.max_total_failures", "sp-minutes": "ai.max_minutes_per_run",
++  "sp-batch": "ai.batch_beats", "sp-parallel": "ai.parallel_calls"};
+ async function loadStopPoint() {
+   try {
+     const cfg = await (await fetch('/api/config')).json();
+@@ -161,9 +185,12 @@
+ async function saveStopPoint(e) {
+   e.preventDefault();
+   const settings = {};
+-  for (const [id, key] of Object.entries(STOP_KEYS)) settings[key] = document.getElementById(id).value;
++  for (const [id, key] of Object.entries(STOP_KEYS)) {
++    const el = document.getElementById(id);
++    if (el && e.target.contains(el) && el.value !== '') settings[key] = el.value;
++  }
+   const res = await fetch('/api/config', {method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({settings})});
+-  if (res.ok) showToast('Limits saved. They apply to the next job you start.', 'success');
++  if (res.ok) showToast('Saved. It applies to the next job you start.', 'success');
+   else showToast('Could not save limits: ' + ((await res.json().catch(() => ({}))).detail || res.status), 'error');
+ }
+ loadStopPoint();
+diff -ruN a/tests/test_provider_guard.py b/tests/test_provider_guard.py
+--- a/tests/test_provider_guard.py	2026-11-10 05:35:48.738585583 +0700
++++ b/tests/test_provider_guard.py	2026-11-10 05:36:08.503913604 +0700
+@@ -150,3 +150,65 @@
+     with pytest.raises(ProviderCircuitOpen):
+         with ThreadPoolExecutor(max_workers=3) as pool:
+             list(pool.map(worker, [1, 2, 3]))
++
++
++# =================== configurable code batches ===================
++def _scenes(n):
++    return [{"beat_id": i + 1, "start": i * 4.0, "end": i * 4.0 + 4, "bg_color": "cream",
++             "layout": "top_text_bottom_art", "summary": "s", "visual_blueprint": "b"} for i in range(n)]
++
++
++def _run_pass2(monkeypatch, n_beats, **kw):
++    import nalarka.core.storyboard as sb
++    spans, threads = [], set()
++    import threading
++
++    def fake_code(base_url, api_key, model, sys_p, user_p, log_fn, **k):
++        threads.add(threading.get_ident())
++        import re
++        m = re.search(r"`(beat_\d+)\(v\)` through `(beat_\d+)\(v\)`", user_p)
++        spans.append((m.group(1), m.group(2)))
++        return ""
++    monkeypatch.setattr(sb, "call_ai_python_code", fake_code)
++    logs = []
++    sb.generate_scene_code_batches("u", "k", "m", "topic", _scenes(n_beats), {}, {}, logs.append, **kw)
++    return sorted(spans), logs
++
++
++def test_batch_size_is_configurable(monkeypatch):
++    spans, logs = _run_pass2(monkeypatch, 11)                       # default: 6 per request
++    assert spans == [("beat_01", "beat_06"), ("beat_07", "beat_11")]
++    spans, logs = _run_pass2(monkeypatch, 11, batch_beats=2, parallel_calls=1)
++    assert len(spans) == 6 and spans[0] == ("beat_01", "beat_02") and spans[-1] == ("beat_11", "beat_11")
++    assert "of up to 2 beat(s), 1 call(s) in parallel" in " ".join(logs)
++    spans, _ = _run_pass2(monkeypatch, 3, batch_beats=1)
++    assert spans == [("beat_01", "beat_01"), ("beat_02", "beat_02"), ("beat_03", "beat_03")]
++    spans, _ = _run_pass2(monkeypatch, 4, batch_beats=0)            # nonsense falls back, never crashes
++    assert spans
++
++
++def test_batch_settings_validated():
++    from nalarka.services.settings_validation import validate_settings
++    ok, err = validate_settings({"ai.batch_beats": "0", "ai.parallel_calls": 99})
++    assert not err and ok == {"ai.batch_beats": 1, "ai.parallel_calls": 6}
++
++
++def test_resume_override_and_snapshot_through_api(tmp_path, monkeypatch):
++    pytest.importorskip("fastapi"); pytest.importorskip("httpx")
++    from fastapi.testclient import TestClient
++    from nalarka.api.main import create_app
++    from nalarka.db.repos.jobs import update_job_status
++    p = tmp_path / "r.db"
++    c = get_connection(str(p)); run_migrations(c); seed_defaults(c)
++    create_job(c, "render-x", "scan_library", "light", {"batch_beats": 6})
++    update_job_status(c, "render-x", status="failed", error="Stopped")
++    c.close()
++    monkeypatch.setenv("NALARKA_DB_PATH", str(p))
++    monkeypatch.setenv("NALARKA_DATA_DIR", str(tmp_path / "data"))
++    with TestClient(create_app()) as tc:
++        r = tc.post("/api/jobs/render-x/resume", json={"batch_beats": 3})
++        assert r.status_code == 202
++        new_id = r.json()["job_id"]
++        assert tc.get(f"/api/jobs/{new_id}").json()["params"]["batch_beats"] == 3
++        r2 = tc.post("/api/jobs/render-x/resume", json={"batch_beats": 99})
++        assert r2.status_code == 422

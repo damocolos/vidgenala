@@ -180,10 +180,17 @@ def generate_scene_code_batches(
     namespace: Dict[str, Any],
     log_fn,
     cancel_event: Optional[threading.Event] = None,
+    batch_beats: Optional[int] = None,
+    parallel_calls: Optional[int] = None,
 ):
-    """PASS 2. Beats are coded in small batches (several calls in parallel) so output limits are never hit."""
-    batches = [(i, min(i + PASS2_BATCH_BEATS, len(scenes))) for i in range(0, len(scenes), PASS2_BATCH_BEATS)]
-    log_fn(f"[PASS 2/2: VECTOR ARTIST] Coding {len(scenes)} beats in {len(batches)} batch(es), {PASS2_PARALLEL_CALLS} call(s) in parallel...")
+    """PASS 2. Beats are coded in small batches (several calls in parallel) so output limits are never hit.
+
+    ``batch_beats`` / ``parallel_calls`` override the defaults. Smaller batches mean shorter answers,
+    which helps providers or proxies that cut long responses (e.g. a 120 s gateway timeout)."""
+    size = max(1, int(batch_beats or PASS2_BATCH_BEATS))
+    workers = max(1, int(parallel_calls or PASS2_PARALLEL_CALLS))
+    batches = [(i, min(i + size, len(scenes))) for i in range(0, len(scenes), size)]
+    log_fn(f"[PASS 2/2: VECTOR ARTIST] Coding {len(scenes)} beats in {len(batches)} batch(es) of up to {size} beat(s), {workers} call(s) in parallel...")
 
     def _run(span: Tuple[int, int]) -> Tuple[Tuple[int, int], Optional[str]]:
         if cancel_event is not None and cancel_event.is_set():
@@ -215,7 +222,7 @@ def generate_scene_code_batches(
             log_fn(f"[PASS 2 WARN] Batch {first_fn}-{last_fn} failed ({err}). The audit loop will rewrite these beats one by one.")
             return span, None
 
-    with ThreadPoolExecutor(max_workers=max(1, PASS2_PARALLEL_CALLS)) as pool:
+    with ThreadPoolExecutor(max_workers=workers) as pool:
         results = list(pool.map(_run, batches))
 
     if cancel_event is not None and cancel_event.is_set():
@@ -241,6 +248,8 @@ def generate_two_pass_storyboard_and_code(
     log_fn,
     cancel_event: Optional[threading.Event] = None,
     scene_module_path: Optional[Union[str, Path]] = None,
+    batch_beats: Optional[int] = None,
+    parallel_calls: Optional[int] = None,
 ) -> Tuple[dict, Dict[str, Any]]:
     if cancel_event is not None and cancel_event.is_set():
         raise InterruptedError("Operation was cancelled by user.")
@@ -258,7 +267,7 @@ def generate_two_pass_storyboard_and_code(
     namespace = new_scene_namespace()
     generate_scene_code_batches(
         base_url, api_key, model, topic, scenes, plan, namespace, log_fn,
-        cancel_event=cancel_event
+        cancel_event=cancel_event, batch_beats=batch_beats, parallel_calls=parallel_calls,
     )
     target_path = scene_module_path if scene_module_path else "generated_scenes.py"
     write_scene_module_file(plan, path=target_path)

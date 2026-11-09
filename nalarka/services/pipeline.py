@@ -255,6 +255,8 @@ def execute_full_render(
     existing_namespace: Optional[Dict[str, Any]] = None,
     on_plan_ready: Optional[Callable[[dict, Dict[str, Any], List[dict]], None]] = None,
     resume_workdir: Optional[Union[str, Path]] = None,
+    batch_beats: Optional[int] = None,
+    parallel_calls: Optional[int] = None,
 ) -> dict:
     """Executes full video generation pipeline from voiceover and script to verified MP4."""
     ctx.check_cancelled()
@@ -320,6 +322,8 @@ def execute_full_render(
             log_fn=ctx.log,
             cancel_event=ctx.cancel_event,
             scene_module_path=temp_scene_mod_path,
+            batch_beats=batch_beats,
+            parallel_calls=parallel_calls,
         )
 
     # Persist timeline plan JSON immediately BEFORE audit loop

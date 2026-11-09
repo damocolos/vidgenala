@@ -43,6 +43,10 @@ def validate_settings(settings: Dict[str, Any]) -> Tuple[Dict[str, Any], List[st
             val = _coerce(vtype, v)
             if k == "render.max_duration":
                 val = max(15, min(900, val))
+            elif k == "ai.batch_beats":
+                val = max(1, min(12, val))
+            elif k == "ai.parallel_calls":
+                val = max(1, min(6, val))
             elif k == "ai.max_consecutive_failures":
                 val = max(0, min(20, val))
             elif k == "ai.max_total_failures":

@@ -127,9 +127,17 @@ class CreateRenderRequest(BaseModel):
     synth_bgm: Optional[bool] = True
     bgm_path: Optional[str] = None
     workers: Optional[int] = Field(None, ge=1, le=16)
+    batch_beats: Optional[int] = Field(None, ge=1, le=12)
+    parallel_calls: Optional[int] = Field(None, ge=1, le=6)
     output_name: Optional[str] = "output_motion_graphic.mp4"
     storyboard_id: Optional[int] = None
     reuse_storyboard: Optional[bool] = True
+
+
+class ResumeRequest(BaseModel):
+    """Optional overrides when resuming (e.g. ask for smaller code batches)."""
+    batch_beats: Optional[int] = Field(None, ge=1, le=12)
+    parallel_calls: Optional[int] = Field(None, ge=1, le=6)
 
 
 class RerollBeatRequest(BaseModel):
