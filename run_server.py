@@ -11,7 +11,7 @@ if __name__ == "__main__":
 
     host = os.environ.get("NALARKA_HOST", "127.0.0.1")
     port = int(os.environ.get("NALARKA_PORT", "8000"))
-    reload = os.environ.get("NALARKA_RELOAD", "1").lower() in ("1", "true", "yes")
+    reload = os.environ.get("NALARKA_RELOAD", "0").lower() in ("1", "true", "yes")
 
     print(f"Starting Nalarka Studio server on http://{host}:{port} (reload={reload})...")
     uvicorn.run(

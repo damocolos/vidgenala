@@ -3,6 +3,7 @@ import os
 import uuid
 import shutil
 import sqlite3
+from ...datadir import data_root
 from pathlib import Path
 from typing import Optional, List, Dict, Any
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Request, Query, status
@@ -49,7 +50,7 @@ def upload_library_file(
             detail=f"Invalid file type for {kind}. Allowed: {', '.join(sorted(allowed))}",
         )
 
-    dest_dir = Path("data") / "library" / kind
+    dest_dir = data_root() / "library" / kind
     dest_dir.mkdir(parents=True, exist_ok=True)
     filename = safe_upload_name(file.filename)
     dest_path = dest_dir / filename

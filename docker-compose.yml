@@ -13,5 +13,6 @@ services:
       - ./data:/app/data
       - ./references_library:/app/references_library
     environment:
+      - NALARKA_DATA_DIR=/app/data
       - NALARKA_DB_PATH=/app/data/nalarka.db
-      - NALARKA_KEY_FILE=/app/data/secret.key
+      - NALARKA_KEY_FILE=/app/data/.secret_key

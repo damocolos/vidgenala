@@ -6,6 +6,7 @@ from typing import Optional
 from cryptography.fernet import Fernet
 
 _KEY_ENV = "NALARKA_SECRET_KEY"
+_KEY_FILE_ENV = "NALARKA_KEY_FILE"
 _DEFAULT_KEY_FILE = Path("data") / ".secret_key"
 _FERNET_INSTANCE: Optional[Fernet] = None
 
@@ -16,14 +17,26 @@ def get_encryption_key(key_file_path: Optional[Path] = None) -> bytes:
     if env_key:
         return env_key.encode("utf-8").strip()
 
-    target_file = key_file_path or _DEFAULT_KEY_FILE
+    from ..datadir import data_root
+    legacy_file = data_root() / ".secret_key"
+    env_file = os.environ.get(_KEY_FILE_ENV)
+    target_file = key_file_path or (Path(env_file) if env_file else legacy_file)
     if target_file.exists():
         return target_file.read_bytes().strip()
+    # Existing installs keep their key even if NALARKA_KEY_FILE was added later.
+    if key_file_path is None and legacy_file.exists():
+        return legacy_file.read_bytes().strip()
 
-    # Generate new key and save
+    # Generate new key and save (owner-only permissions where supported)
     target_file.parent.mkdir(parents=True, exist_ok=True)
     new_key = Fernet.generate_key()
-    target_file.write_bytes(new_key)
+    fd = os.open(str(target_file), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "wb") as f:
+        f.write(new_key)
+    try:
+        os.chmod(target_file, 0o600)
+    except OSError:
+        pass
     return new_key
 
 

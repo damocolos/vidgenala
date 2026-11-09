@@ -7,9 +7,7 @@ from typing import Iterable, List, Optional, Union
 _SAFE_NAME_RE = re.compile(r"[^A-Za-z0-9._ -]+")
 
 
-def data_root() -> Path:
-    """Resolved application data directory (``data/`` unless NALARKA_DATA_DIR is set)."""
-    return Path(os.environ.get("NALARKA_DATA_DIR", "data")).resolve()
+from ..datadir import data_root  # noqa: F401  (re-exported)
 
 
 def media_roots(extra: Iterable[Optional[Union[str, Path]]] = ()) -> List[Path]:

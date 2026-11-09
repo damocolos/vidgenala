@@ -78,12 +78,15 @@ class JobDispatcher:
         self._lock = threading.Lock()
         # Serialises dispatch_next(): called from the poll thread AND from API endpoints.
         self._dispatch_lock = threading.Lock()
+        self._migrated = False
         self._stop_event = threading.Event()
         self._thread: Optional[threading.Thread] = None
 
     def _get_db(self) -> sqlite3.Connection:
         conn = get_connection(self.db_path)
-        run_migrations(conn)
+        if not self._migrated:  # schema only needs checking once per process, not every tick
+            run_migrations(conn)
+            self._migrated = True
         return conn
 
     def is_pid_alive(self, pid: int) -> bool:

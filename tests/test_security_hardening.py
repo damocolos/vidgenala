@@ -305,3 +305,62 @@ def test_base_url_change_drops_stored_key(db):
     # ...unless the caller supplies a key together with the URL
     set_provider(db, "openrouter", base_url="https://ok.example/v1", api_key="sk-new")
     assert get_provider(db, "openrouter")["api_key"] == "sk-new"
+
+
+# =================== patch 3 ===================
+from nalarka.services.httprange import parse_range, RangeNotSatisfiable
+
+
+def test_parse_range():
+    assert parse_range(None, 100) is None
+    assert parse_range("bytes=0-9", 100) == (0, 9)
+    assert parse_range("bytes=90-", 100) == (90, 99)
+    assert parse_range("bytes=90-500", 100) == (90, 99)      # end clamped, not 416
+    assert parse_range("bytes=-10", 100) == (90, 99)         # suffix range
+    assert parse_range("bytes=-500", 100) == (0, 99)
+    assert parse_range("bytes=0-0", 100) == (0, 0)
+    assert parse_range("bytes=0-1,5-9", 100) is None         # multi-range -> full file
+    assert parse_range("items=0-1", 100) is None
+    for bad in ("bytes=100-", "bytes=100-120", "bytes=50-10", "bytes=-0"):
+        with pytest.raises(RangeNotSatisfiable):
+            parse_range(bad, 100)
+    with pytest.raises(RangeNotSatisfiable):
+        parse_range("bytes=0-", 0)
+
+
+def test_dispatcher_runs_migrations_once(tmp_path, monkeypatch):
+    import nalarka.jobs.dispatcher as d
+    p = tmp_path / "m.db"
+    c = get_connection(p); run_migrations(c); seed_defaults(c); c.close()
+    calls = []
+    real = d.run_migrations
+    monkeypatch.setattr(d, "run_migrations", lambda conn: calls.append(1) or real(conn))
+    disp = d.JobDispatcher(db_path=str(p))
+    for _ in range(5):
+        disp.dispatch_next()
+    assert len(calls) == 1
+
+
+def test_secret_key_file_env_legacy_fallback_and_perms(tmp_path, monkeypatch):
+    from nalarka.services import secrets as sec
+    monkeypatch.delenv("NALARKA_SECRET_KEY", raising=False)
+    monkeypatch.setenv("NALARKA_DATA_DIR", str(tmp_path))
+    # 1) legacy file present -> reused even if NALARKA_KEY_FILE points elsewhere
+    (tmp_path / ".secret_key").write_bytes(b"LEGACYKEY")
+    monkeypatch.setenv("NALARKA_KEY_FILE", str(tmp_path / "other.key"))
+    assert sec.get_encryption_key() == b"LEGACYKEY"
+    assert not (tmp_path / "other.key").exists()
+    # 2) fresh install -> env file is created, owner-only
+    (tmp_path / ".secret_key").unlink()
+    k = sec.get_encryption_key()
+    assert (tmp_path / "other.key").read_bytes() == k
+    if os.name != "nt":
+        assert (os.stat(tmp_path / "other.key").st_mode & 0o777) == 0o600
+
+
+def test_data_dir_env_drives_default_db(tmp_path, monkeypatch):
+    from nalarka.db.connection import get_db_path
+    monkeypatch.delenv("NALARKA_DB_PATH", raising=False)
+    monkeypatch.setenv("NALARKA_DATA_DIR", str(tmp_path / "d"))
+    assert get_db_path() == (tmp_path / "d").resolve() / "nalarka.db"
+

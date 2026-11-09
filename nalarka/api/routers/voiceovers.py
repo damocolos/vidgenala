@@ -3,6 +3,7 @@ import uuid
 import math
 import shutil
 import sqlite3
+from ...datadir import data_root
 from pathlib import Path
 from typing import Optional, Dict, Any
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Request, status
@@ -69,7 +70,7 @@ def upload_voiceover_endpoint(
     if suffix not in (".mp3", ".wav", ".m4a", ".ogg"):
         raise HTTPException(status_code=400, detail="Invalid audio format. Allowed: .mp3, .wav, .m4a, .ogg")
 
-    dest_dir = Path("data") / "audio"
+    dest_dir = data_root() / "audio"
     dest_dir.mkdir(parents=True, exist_ok=True)
     saved_name = f"vo_{topic_id}_{uuid.uuid4().hex[:6]}{suffix}"
     dest_path = dest_dir / saved_name

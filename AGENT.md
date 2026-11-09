@@ -1,4 +1,4 @@
-# AGENT.md — Nalarka Local Motion Graphics Studio (v8.0)
+# AGENT.md — Nalarka Local Motion Graphics Studio (v8.1)
 
 ## 1. Project Objective & Core Philosophy
 This repository hosts **Nalarka Motion Graphics Studio (`nalarka_local.py` / `main.py`)**, a deterministic local Python video rendering pipeline that replicates and extends the **`motion-graphics-by-nalarka`** explainer video skill without incurring cloud sandbox VM execution costs.
@@ -15,15 +15,19 @@ Total video duration (`DUR`) is **never guessed from word count**. It is calcula
 $$\text{DUR} = \lceil \text{VO\_DUR} + 2.5 \rceil \quad (\text{1.0s Intro} + \text{Voiceover} + \text{1.5s Outro})$$
 $$\text{TOTAL\_FRAMES} = \text{DUR} \times 30 \quad (\text{Constant 30 FPS})$$
 
-| Parameter | Mode 1: `1. Short (< 1 Minute | Max 60s)` | Mode 2: `2. Medium (1 - 2 Minutes | 61s - 120s)` |
-| :--- | :--- | :--- |
-| **Hard Ceiling** | $\le 60\text{ seconds}$ (`1,800 frames` max) | $61\text{ – }120\text{ seconds}$ (`3,600 frames` max) |
-| **Script Word Count** | `70 – 125 words` ($\approx 28\text{s}–50\text{s}$ VO) | `165 – 255 words` ($\approx 64\text{s}–105\text{s}$ VO) |
-| **Script Sections** | 5 sections: `[Hook]`, `[Inti 1..3]`, `[Penutup]` | 7 sections: `[Hook]`, `[Inti 1..5]`, `[Penutup]` |
-| **Visual Beat Count** | `9 – 15 beats` ($\approx 2.6\text{s}$ avg per beat) | `18 – 30 beats` ($\approx 3.2\text{s}$ avg per beat) |
-| **Codec & Format** | MP4 (`libx264`, `yuv420p`, `crf 18`, `30/1` CFR) + Audio (`aac`, `192k`, `48000 Hz`) | Same |
+Maximum duration is a single setting, `render.max_duration` (15 – 900 s, default 60 s = "Standard"; above 60 s = "Extended / long video").
+Script length, section count and beat count scale from it (`script_word_budget`, `script_section_count`, `GET /api/duration-hint`):
 
-> **Hard Stop Rule:** Never cut, trim, or speed up the user's voiceover (`atempo` is forbidden). If `DUR` exceeds the active mode's ceiling (`60s` or `120s`), halt before rendering and prompt the user to switch modes or shorten the script.
+| `max_duration` | Script words | Sections | Visual beats (≈ d/7 … d/4.5) |
+| :--- | :--- | :--- | :--- |
+| 60 s | 75 – 125 | 3 | 9 – 13 |
+| 120 s | 154 – 257 | 6 | 17 – 27 |
+| 300 s | 391 – 653 | 12 | 43 – 67 |
+| 900 s | 1183 – 1973 | 12 | 129 – 200 |
+
+Codec & format are the same for all lengths: MP4 (`libx264`, `yuv420p`, `crf 18`, `30/1` CFR) + audio (`aac`, `192k`, `48000 Hz`).
+
+> **Hard Stop Rule:** Never cut, trim, or speed up the user's voiceover (`atempo` is forbidden). If `DUR` exceeds `render.max_duration`, halt before rendering and prompt the user to raise the limit or shorten the script. The script is also checked against the limit *before* TTS (`check_script_fits`, tolerance `TTS_OVERSHOOT_TOLERANCE`).
 
 ---
 
@@ -110,7 +114,7 @@ Before rendering the full MP4, every beat function in `generated_scenes.py` is r
   1. Codec & Pixel Format (`h264` + `aac`, `yuv420p`).
   2. Resolution & Aspect Ratio match (`1080x1920` or `1920x1080`).
   3. Constant Frame Rate (`r_frame_rate == 30/1` and `avg_frame_rate == 30/1`).
-  4. Exact Container Duration ($\le 60\text{s}$ or $\le 120\text{s}$ mode ceiling, within $\pm 0.15\text{s}$ of locked target).
+  4. Exact Container Duration (within `render.max_duration`, within $\pm 0.15\text{s}$ of locked target).
   5. Exact Decoded Frame Count (`nb_read_frames == DUR * 30`).
   6. Zero Black Frames (`blackdetect`) & non-empty `check/last_frame.png`.
   7. Audio Presence & Anti-Clipping (`volumedetect` mean $> -45\text{ dB}$, max $\le 0.0\text{ dB}$) + generates `check/verification_contact_sheet.jpg`.

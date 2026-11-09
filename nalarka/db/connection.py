@@ -14,7 +14,8 @@ def get_db_path() -> Path:
     env_path = os.environ.get("NALARKA_DB_PATH")
     if env_path:
         return Path(env_path)
-    return DEFAULT_DB_PATH
+    from ..datadir import data_root
+    return data_root() / "nalarka.db"
 
 
 def get_connection(db_path: Optional[Union[str, Path]] = None) -> sqlite3.Connection:

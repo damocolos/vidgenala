@@ -93,3 +93,7 @@ desktop.ini
 *.swp
 *.swo
 
+
+# Run artifacts (written to data/renders/<job>/ at runtime)
+/generated_scenes.py
+/timeline_plan.json

@@ -18,11 +18,15 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY nalarka/ /app/nalarka/
 COPY legacy/ /app/legacy/
 
-# Create persistent storage directories
-RUN mkdir -p /app/data /app/references_library
+# Create persistent storage directories and run as an unprivileged user
+RUN useradd --create-home --uid 1000 nalarka \
+    && mkdir -p /app/data /app/references_library \
+    && chown -R nalarka:nalarka /app
+USER nalarka
 
 # Environment configuration
 ENV PYTHONUNBUFFERED=1 \
+    NALARKA_DATA_DIR=/app/data \
     NALARKA_DB_PATH=/app/data/nalarka.db
 
 EXPOSE 8000

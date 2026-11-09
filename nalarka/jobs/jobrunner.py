@@ -8,6 +8,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
+from ..datadir import data_root
 from ..core.logging_setup import setup_logging
 
 from ..db.connection import get_connection, run_migrations
@@ -69,7 +70,7 @@ def run_job(job_id: str, db_path: Optional[str] = None) -> int:
     topic_id = job.get("topic_id")
 
     # Set up dedicated workdir
-    workdir = Path("data") / "renders" / job_id
+    workdir = data_root() / "renders" / job_id
     workdir.mkdir(parents=True, exist_ok=True)
 
     # Mark running with pid

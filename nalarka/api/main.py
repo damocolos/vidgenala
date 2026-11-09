@@ -119,7 +119,5 @@ if __name__ == "__main__":
         "nalarka.api.main:app",
         host="127.0.0.1",
         port=8000,
-        reload=True,
-        reload_dirs=["nalarka"],
-        reload_excludes=["data/*", "data/**", "*.log", "*.mp4", "*.wav", "*.mp3", "*.tmp"],
+        reload=False,
     )

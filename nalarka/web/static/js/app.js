@@ -1,3 +1,8 @@
+// Escape untrusted text before it is placed into innerHTML / template strings.
+function escapeHtml(v) {
+  return String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
 /**
  * Nalarka Motion Graphics Studio v8.1 - Web Client Application
  */
@@ -253,7 +258,7 @@ async function showVerificationModal(renderId) {
       const key = `check_${i}`;
       const passed = data[key];
       const badge = passed ? '<span class="badge badge-green">PASS</span>' : '<span class="badge badge-red">FAIL</span>';
-      checksHtml += `<tr><td>Check ${i}</td><td>${badge}</td><td>${data.details_json?.[key] || "-"}</td></tr>`;
+      checksHtml += `<tr><td>Check ${i}</td><td>${badge}</td><td>${escapeHtml(data.details_json?.[key] || "-")}</td></tr>`;
     }
 
     content.innerHTML = `
@@ -266,7 +271,7 @@ async function showVerificationModal(renderId) {
       </table>
     `;
   } catch (e) {
-    content.innerHTML = `<p class="text-danger">Error: ${e.message}</p>`;
+    content.innerHTML = `<p class="text-danger">Error: ${escapeHtml(e.message)}</p>`;
   }
 }
 

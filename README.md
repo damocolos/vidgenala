@@ -18,8 +18,8 @@ An automated AI-driven motion graphics generator and vector animation studio pow
 
 1. **Clone the repository**:
    ```bash
-   git clone <repo-url>
-   cd nalarka-video-generation
+   git clone https://github.com/damocolos/vidgenala.git
+   cd vidgenala
    ```
 
 2. **Install Python dependencies**:
@@ -37,7 +37,7 @@ An automated AI-driven motion graphics generator and vector animation studio pow
 ## Running the Application
 
 ### Web UI & API Server
-Start the web server with auto-reload protected against render output interrupts:
+Start the web server (auto-reload is OFF by default so code edits never interrupt a running render; set `NALARKA_RELOAD=1` for development):
 ```bash
 python run_server.py
 ```
@@ -64,3 +64,13 @@ python nalarka_local.py
 | `NALARKA_MEDIA_DIRS` | Folder tambahan (dipisah `os.pathsep`) untuk `vo_path`/`ref_path`/`bgm_path` |
 
 `vo_path`, `ref_path`, `bgm_path`, dan `/api/renders/preview-image` hanya menerima file di dalam `data/`, folder library, atau `NALARKA_MEDIA_DIRS`.
+
+## Docker
+
+```bash
+mkdir -p data references_library && sudo chown 1000:1000 data references_library
+docker compose up --build
+```
+The container runs as UID 1000, so the mounted `data/` folder must be writable by that user.
+`NALARKA_DATA_DIR` (default `./data`) controls where the DB, uploads, renders and the encryption key live;
+`NALARKA_KEY_FILE` overrides the key file location (an existing `data/.secret_key` is always reused).

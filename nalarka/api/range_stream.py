@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Optional
 from fastapi import Request, HTTPException
 from fastapi.responses import Response, StreamingResponse
+from ..services.httprange import parse_range, RangeNotSatisfiable
 
 
 def range_stream_response(
@@ -17,9 +18,16 @@ def range_stream_response(
         raise HTTPException(status_code=404, detail="Media file not found.")
 
     file_size = file_path.stat().st_size
-    range_header = request.headers.get("range")
+    try:
+        rng = parse_range(request.headers.get("range"), file_size)
+    except RangeNotSatisfiable:
+        raise HTTPException(
+            status_code=416,
+            detail="Range not satisfiable.",
+            headers={"Content-Range": f"bytes */{file_size}"},
+        )
 
-    if not range_header:
+    if rng is None:
         # Full content response
         def iter_full():
             with open(file_path, "rb") as f:
@@ -33,22 +41,7 @@ def range_stream_response(
         }
         return StreamingResponse(iter_full(), headers=headers, media_type=content_type)
 
-    # Parse Range: bytes=start-end
-    match = re.match(r"^bytes=(\d+)-(\d*)$", range_header.strip())
-    if not match:
-        raise HTTPException(status_code=416, detail="Invalid Range header format.")
-
-    start = int(match.group(1))
-    end_str = match.group(2)
-    end = int(end_str) if end_str else file_size - 1
-
-    if start >= file_size or end >= file_size or start > end:
-        raise HTTPException(
-            status_code=416,
-            detail="Range not satisfiable.",
-            headers={"Content-Range": f"bytes */{file_size}"},
-        )
-
+    start, end = rng
     content_length = end - start + 1
 
     def iter_range():
