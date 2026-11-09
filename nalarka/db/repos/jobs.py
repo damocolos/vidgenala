@@ -100,19 +100,40 @@ def list_active_jobs(conn: sqlite3.Connection) -> List[dict]:
     return items
 
 
-def list_jobs(conn: sqlite3.Connection, status: Optional[str] = None, limit: int = 50) -> List[dict]:
-    cur = conn.cursor()
+def list_jobs(
+    conn: sqlite3.Connection,
+    status: Optional[str] = None,
+    limit: int = 50,
+    topic_id: Optional[int] = None,
+    kind: Optional[str] = None,
+) -> List[dict]:
+    where, args = [], []
     if status:
-        cur.execute("SELECT * FROM jobs WHERE status = ? ORDER BY created_at DESC LIMIT ?", (status, limit))
-    else:
-        cur.execute("SELECT * FROM jobs ORDER BY created_at DESC LIMIT ?", (limit,))
+        where.append("status = ?"); args.append(status)
+    if topic_id is not None:
+        where.append("topic_id = ?"); args.append(topic_id)
+    if kind:
+        where.append("kind = ?"); args.append(kind)
+    sql = "SELECT * FROM jobs" + (" WHERE " + " AND ".join(where) if where else "")
+    sql += " ORDER BY created_at DESC, rowid DESC LIMIT ?"
     items = []
-    for r in cur.fetchall():
+    for r in conn.execute(sql, (*args, limit)).fetchall():
         d = dict(r)
         d["params"] = json.loads(d["params_json"]) if d["params_json"] else {}
         d["result"] = json.loads(d["result_json"]) if d["result_json"] else None
         items.append(d)
     return items
+
+
+def has_active_resume(conn: sqlite3.Connection, job_id: str) -> bool:
+    """True if a queued/running job already resumes `job_id` (prevents paying twice)."""
+    for r in conn.execute("SELECT params_json FROM jobs WHERE status IN ('queued','running')").fetchall():
+        try:
+            if (json.loads(r["params_json"]) or {}).get("resume_of") == job_id:
+                return True
+        except ValueError:
+            continue
+    return False
 
 
 def append_job_event(

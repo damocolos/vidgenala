@@ -3,24 +3,42 @@
 {% block title %}{{ topic.title }} - Nalarka Studio{% endblock %}
 
 {% block content %}
-<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+<div class="page-head">
   <div>
-    <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.25rem;">
-      <a href="/topics" style="color: var(--text-muted); text-decoration: none;">&larr; Topics</a>
-      <span style="color: var(--text-dim);">/</span>
+    <div class="crumbs">
+      <a href="/topics">Topics</a><span>/</span>
       <span class="badge">Topic #{{ topic.id }}</span>
       <span class="badge badge-blue">{{ topic.language }}</span>
     </div>
-    <h1 style="font-size: 1.35rem; font-weight: 700;">{{ topic.title }}</h1>
+    <h1>{{ topic.title }}</h1>
   </div>
   <div style="display: flex; gap: 0.5rem;">
     <button class="btn btn-secondary btn-sm" onclick="saveTopicDetails()">Save Topic</button>
   </div>
 </div>
 
-<div class="grid-2">
-  <!-- Left Column: Config, Topic, Script -->
-  <div>
+<!-- Pipeline: where this video is, at a glance -->
+{% set lv = latest_verification %}
+<div class="pipeline" id="pipeline" aria-label="Pipeline status">
+  <div class="pipe-step" id="step-script" data-state="{{ 'done' if current_script else 'todo' }}">
+    <b>Script</b><span>{% if current_script %}{{ script_stats.word_count }} words · ~{{ script_stats.est_video_seconds }}s{% else %}Not written yet{% endif %}</span>
+  </div>
+  <div class="pipe-step" id="step-voice" data-state="{{ 'done' if current_voiceover else 'todo' }}">
+    <b>Voiceover</b><span>{% if current_voiceover %}Ready to render{% else %}Generate or upload audio{% endif %}</span>
+  </div>
+  <div class="pipe-step" id="step-board" data-state="{{ 'done' if beats else 'todo' }}">
+    <b>Storyboard</b><span>{% if beats %}{{ beats|length }} beats saved{% else %}Made at render time{% endif %}</span>
+  </div>
+  <div class="pipe-step" id="step-render" data-state="{% if latest_render and latest_render.status == 'succeeded' %}done{% elif latest_render and latest_render.status in ('running','queued') %}run{% elif latest_render and latest_render.status == 'failed' %}fail{% else %}todo{% endif %}">
+    <b>Render</b><span>{% if latest_render %}{{ latest_render.status|capitalize }}{% if latest_render.status == 'failed' %} · resume keeps paid AI work{% endif %}{% else %}Not started{% endif %}</span>
+  </div>
+  <div class="pipe-step" id="step-verify" data-state="{% if lv and lv.passed == lv.total %}done{% elif lv %}fail{% else %}todo{% endif %}">
+    <b>Verified</b><span>{% if lv %}{{ lv.passed }}/{{ lv.total }} checks{% else %}Runs after render{% endif %}</span>
+  </div>
+</div>
+
+<div class="studio">
+  <div class="stack">
     <!-- SECTION 1: AI Provider Config (F-01..F-08) -->
     <div class="card" id="provider-card">
       <div class="card-header">
@@ -131,10 +149,6 @@
         <button class="btn btn-secondary btn-sm" onclick="saveManualScript()">Save Script Draft</button>
       </div>
     </div>
-  </div>
-
-  <!-- Right Column: Voiceover, Render, Beat Inspector, Console -->
-  <div>
     <!-- SECTION 3: Voiceover & Audio (F-20..F-41) -->
     <div class="card" id="audio-card">
       <div class="card-header">
@@ -310,23 +324,45 @@
       </div>
     </div>
 
-    <!-- SECTION 5: Progress & Live Console (F-50..F-54) -->
+  </div>
+
+  <aside class="studio-aside" aria-label="Output">
+    <div class="card" id="videos-card">
+      <div class="card-header">
+        <div class="card-title">Videos</div>
+        <a class="btn btn-secondary btn-sm" href="/history">All videos</a>
+      </div>
+      <div id="video-list" class="video-list"><div class="empty-state"><b>Loading…</b></div></div>
+    </div>
+
+    <div class="card" id="ai-card">
+      <div class="card-header">
+        <div class="card-title">AI requests</div>
+        <button class="btn btn-secondary btn-sm" onclick="toggleActivity(true, window.CURRENT_JOB_ID)">Details</button>
+      </div>
+      <div id="ai-usage"></div>
+    </div>
+
+    <!-- Progress & Live Console (F-50..F-54) -->
     <div class="card" id="console-card">
       <div class="card-header">
         <div class="card-title">
           <span>Engine Progress</span>
           <span id="job-status" class="badge">Idle</span>
         </div>
-        <button class="btn btn-secondary btn-sm" onclick="document.getElementById('live-console').textContent=''">Clear Log</button>
+        <div class="monitor-tools">
+          <button id="btn-resume-job" class="btn btn-primary btn-sm" style="display:none" onclick="resumeCurrentJob()" title="Re-run the failed job. AI answers already received are reused, so you are not charged again.">Resume</button>
+          <button class="btn btn-secondary btn-sm" onclick="document.getElementById('live-console').textContent=''">Clear Log</button>
+        </div>
       </div>
       <div style="margin-bottom: 0.75rem;">
         <progress id="job-progress" value="0" max="100"></progress>
       </div>
-      <pre id="live-console" class="console-box">[System] Nalarka Studio Ready.
+      <pre id="live-console" class="console-box">Nalarka Studio is ready.
 Topic #{{ topic.id }}: {{ topic.title }}
-Select an action above to begin.</pre>
+Pick an action on the left. The log of every run is saved, so it is still here after a reload.</pre>
     </div>
-  </div>
+  </aside>
 </div>
 
 {% endblock %}
@@ -586,12 +622,8 @@ async function triggerFullRender() {
     const data = await res.json();
 
     connectJobEvents(data.job_id, {
-      onDone: (result) => {
-        btn.disabled = false;
-        showToast("Video render completed successfully!", "success");
-        setTimeout(() => window.location.reload(), 1500);
-      },
-      onError: () => { btn.disabled = false; }
+      onDone: () => { btn.disabled = false; afterRenderJob(); },
+      onError: () => { btn.disabled = false; afterRenderJob(); }
     });
   } catch (err) {
     btn.disabled = false;
@@ -686,5 +718,68 @@ async function triggerRerollBeat() {
     showToast(err.message, "error");
   }
 }
+
+// ---- page wiring: videos, AI usage, saved log, resume --------------------------------------
+const STEP_FOR_KIND = { generate_script: 'step-script', generate_tts: 'step-voice', full_render: 'step-render', reroll_beat: 'step-render', verify_mp4: 'step-verify' };
+function pipelineMark(kind, state, text) {
+  const el = document.getElementById(STEP_FOR_KIND[kind] || '');
+  if (!el) return;
+  el.dataset.state = state;
+  if (text) el.querySelector('span').textContent = text;
+}
+window.onPipelineProgress = (d) => { if (window.CURRENT_JOB_KIND) pipelineMark(window.CURRENT_JOB_KIND, 'run', d.status); };
+
+function afterRenderJob() {
+  loadTopicVideos(TOPIC_ID).then(() => {
+    LATEST_RENDER_ID = window.LATEST_RENDER_ID || LATEST_RENDER_ID;
+    const v = document.getElementById('btn-verify-video');
+    if (v && LATEST_RENDER_ID) v.disabled = false;
+  });
+  loadTopicAiUsage(TOPIC_ID);
+  restoreLastJob(false);
+}
+
+async function restoreLastJob(attach = true) {
+  try {
+    const res = await fetch(`/api/jobs?topic_id=${TOPIC_ID}&limit=1`);
+    if (!res.ok) return;
+    const jobs = await res.json();
+    if (!jobs.length) return;
+    const j = jobs[0];
+    window.CURRENT_JOB_ID = j.id;
+    window.CURRENT_JOB_KIND = j.kind;
+    const consoleEl = document.getElementById('live-console');
+    const progressEl = document.getElementById('job-progress');
+    const statusEl = document.getElementById('job-status');
+    const resumeBtn = document.getElementById('btn-resume-job');
+    if (j.status === 'running' || j.status === 'queued') {
+      pipelineMark(j.kind, 'run', j.status_text || 'Running');
+      if (attach) connectJobEvents(j.id, { onDone: afterRenderJob, onError: afterRenderJob });
+      return;
+    }
+    await loadSavedLog(j.id, consoleEl, progressEl, statusEl);
+    const failed = j.status === 'failed' || j.status === 'canceled';
+    if (resumeBtn) resumeBtn.style.display = failed ? '' : 'none';
+    if (failed) { pipelineMark(j.kind, 'fail', (j.error || 'Failed').slice(0, 60)); appendLogLine(consoleEl, '[UI] This run stopped. Resume re-uses every AI answer already received.'); }
+  } catch (_) {}
+}
+
+async function resumeCurrentJob() {
+  if (!window.CURRENT_JOB_ID) return;
+  const res = await fetch(`/api/jobs/${window.CURRENT_JOB_ID}/resume`, { method: 'POST' });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) { showToast(d.detail || 'Could not resume', 'error'); return; }
+  document.getElementById('btn-resume-job').style.display = 'none';
+  showToast('Resumed. Only missing steps are billed.', 'success');
+  window.CURRENT_JOB_KIND = (await (await fetch(`/api/jobs/${d.job_id}`)).json()).kind;
+  connectJobEvents(d.job_id, { onDone: afterRenderJob, onError: afterRenderJob });
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  loadTopicVideos(TOPIC_ID);
+  loadTopicAiUsage(TOPIC_ID);
+  restoreLastJob(true);
+  window.addEventListener('nalarka:jobs-changed', () => { loadTopicVideos(TOPIC_ID); loadTopicAiUsage(TOPIC_ID); });
+});
 </script>
 {% endblock %}

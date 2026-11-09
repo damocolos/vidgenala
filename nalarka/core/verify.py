@@ -12,6 +12,15 @@ from PIL import Image
 
 from .constants import FPS, DEFAULT_MAX_DURATION
 
+class VerificationFailed(AssertionError):
+    """Raised when one or more of the 7 checks fail. ``result`` holds the full outcome
+    (including per-check details) so callers can still store it and keep the rendered MP4."""
+
+    def __init__(self, message: str, result: dict):
+        super().__init__(message)
+        self.result = result
+
+
 def run_verification_suite(
     output_path: str,
     expected_dur: Optional[int],
@@ -157,16 +166,17 @@ def run_verification_suite(
 
     sheet_str = str(sheet_path) if sheet_path else f"{resolved_check_dir}/verification_contact_sheet.jpg"
     log_fn(f"[VERIFICATION SUMMARY] Passed {passed_count}/{len(tests)} checks. Sheet: {sheet_str}")
-    if passed_count < len(tests):
-        raise AssertionError(f"Verification Suite failed {len(tests) - passed_count} check(s).")
-
-    return {
+    outcome = {
         "passed": passed_count,
         "total": len(tests),
         "duration": fmt_dur,
         "frames": actual_frames,
         "check_dir": str(resolved_check_dir),
         "contact_sheet": sheet_str if sheet_path and sheet_path.exists() else None,
+        "checks": [{"name": n, "passed": bool(ok), "detail": d} for n, ok, d in tests],
     }
+    if passed_count < len(tests):
+        raise VerificationFailed(f"Verification Suite failed {len(tests) - passed_count} check(s).", outcome)
+    return outcome
 
 

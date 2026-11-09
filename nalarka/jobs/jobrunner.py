@@ -51,6 +51,35 @@ from ..core.tts import (
 )
 from ..services.secrets import decrypt_secret
 from ..services.paths import safe_output_name
+from ..services.llm_ledger import DbLLMRecorder
+from ..services.render_media import finalize_render_media, probe_video
+from ..db.repos.llm_calls import job_chain
+from ..db.repos.renders import (
+    bind_render_to_job, update_render_media, end_unfinished_render_for_job,
+    update_render_metrics, get_render,
+)
+from ..core.verify import VerificationFailed
+from ..core.llm import set_llm_recorder
+
+
+def _save_verification(conn, rid, ver_res: dict, max_duration) -> int:
+    return create_verification(
+        conn, render_id=rid, passed=ver_res["passed"], total=ver_res["total"],
+        duration_sec=ver_res.get("duration"), frames=ver_res.get("frames"),
+        results=ver_res.get("checks"), contact_sheet_path=ver_res.get("contact_sheet"),
+        max_duration_used=max_duration,
+    )
+
+
+def _store_video_facts(conn, rid, video, workdir, total_dur=None) -> None:
+    """Poster, checksum and ffprobe facts (resolution/length) for a rendered MP4. Best effort."""
+    try:
+        poster, digest = finalize_render_media(Path(video), Path(workdir), total_dur)
+        update_render_media(conn, rid, poster, digest)
+        facts = probe_video(Path(video))
+        update_render_metrics(conn, rid, facts.get("width"), facts.get("height"), facts.get("duration") or total_dur)
+    except Exception:
+        pass
 
 
 def run_job(job_id: str, db_path: Optional[str] = None) -> int:
@@ -84,8 +113,25 @@ def run_job(job_id: str, db_path: Optional[str] = None) -> int:
         progress_fn=emitter.set_progress,
     )
 
+    # AI request ledger: every LLM call of this job is saved; a resumed job replays the calls the
+    # previous run already got answers for (no second charge).
+    resume_of = params.get("resume_of")
+    chain = job_chain(conn, resume_of) if resume_of else []
+    set_llm_recorder(DbLLMRecorder(db_path, job_id, topic_id, replay_job_ids=chain))
+    resume_workdir = (data_root() / "renders" / resume_of) if resume_of else None
+    active_render = {"id": None}
+
+    def _bind_render(render_id: int) -> None:
+        active_render["id"] = render_id
+        try:
+            bind_render_to_job(conn, render_id, job_id)
+        except Exception as e:
+            ctx.log(f"[WARN] Could not link render #{render_id} to job: {e}")
+
     try:
         ctx.log(f"[JOB START] Running {kind} (job_id: {job_id}, pid: {os.getpid()})")
+        if chain:
+            ctx.log(f"[RESUME] Resuming job {resume_of}: AI responses it already received are replayed from the database (no cost).")
         result = None
 
         if kind == "test_ai":
@@ -261,6 +307,7 @@ def run_job(job_id: str, db_path: Optional[str] = None) -> int:
                 output_path=str(out_mp4),
             )
             update_render_status(conn, rid, status="running", started_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+            _bind_render(rid)
 
             # Check if an existing storyboard can be reused
             reuse_sb = params.get("reuse_storyboard", True)
@@ -337,6 +384,7 @@ def run_job(job_id: str, db_path: Optional[str] = None) -> int:
                 existing_plan=existing_plan,
                 existing_namespace=existing_ns,
                 on_plan_ready=_on_plan_ready,
+                resume_workdir=resume_workdir,
             )
 
             # Persist transcript & storyboard if not already saved
@@ -381,16 +429,7 @@ def run_job(job_id: str, db_path: Optional[str] = None) -> int:
 
             # Persist verification
             ver_res = render_res["verification"]
-            v_id = create_verification(
-                conn,
-                render_id=rid,
-                passed=ver_res["passed"],
-                total=ver_res["total"],
-                duration_sec=ver_res.get("duration"),
-                frames=ver_res.get("frames"),
-                contact_sheet_path=ver_res.get("contact_sheet"),
-                max_duration_used=topic["max_duration"],
-            )
+            v_id = _save_verification(conn, rid, ver_res, topic["max_duration"])
 
             f_size = out_mp4.stat().st_size if out_mp4.exists() else 0
             update_render_status(
@@ -399,6 +438,7 @@ def run_job(job_id: str, db_path: Optional[str] = None) -> int:
                 file_size=f_size,
                 finished_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             )
+            _store_video_facts(conn, rid, out_mp4, workdir, render_res.get("total_dur"))
 
             result = {
                 "render_id": rid,
@@ -445,6 +485,7 @@ def run_job(job_id: str, db_path: Optional[str] = None) -> int:
                 voiceover_id=vo_id, output_path=str(out_mp4),
             )
             update_render_status(conn, rid, status="running", started_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+            _bind_render(rid)
 
             reroll_res = execute_reroll_beat(
                 ctx=ctx,
@@ -478,18 +519,14 @@ def run_job(job_id: str, db_path: Optional[str] = None) -> int:
                 )
 
             ver_res = reroll_res["verification"]
-            create_verification(
-                conn, render_id=rid, passed=ver_res["passed"],
-                total=ver_res["total"], duration_sec=ver_res.get("duration"),
-                frames=ver_res.get("frames"), contact_sheet_path=ver_res.get("contact_sheet"),
-                max_duration_used=topic["max_duration"],
-            )
+            _save_verification(conn, rid, ver_res, topic["max_duration"])
 
             f_size = out_mp4.stat().st_size if out_mp4.exists() else 0
             update_render_status(
                 conn, rid, status="succeeded", output_path=str(out_mp4),
                 file_size=f_size, finished_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             )
+            _store_video_facts(conn, rid, out_mp4, workdir)
 
             result = {
                 "render_id": rid,
@@ -530,15 +567,24 @@ def run_job(job_id: str, db_path: Optional[str] = None) -> int:
 
         elif kind == "verify_mp4":
             mp4_path = params["mp4_path"]
-            res = execute_verify_only(
-                ctx=ctx,
-                mp4_path=mp4_path,
-                expected_w=params.get("expected_w", 1080),
-                expected_h=params.get("expected_h", 1920),
-                expected_dur=params.get("expected_dur"),
-                max_duration=params.get("max_duration", 60),
-            )
+            facts = probe_video(Path(mp4_path))
+            vr = (get_job(conn, job_id) or {}).get("render_id")
+            try:
+                res = execute_verify_only(
+                    ctx=ctx,
+                    mp4_path=mp4_path,
+                    expected_w=params.get("expected_w") or facts.get("width") or 1080,
+                    expected_h=params.get("expected_h") or facts.get("height") or 1920,
+                    expected_dur=params.get("expected_dur") or (int(round(facts["duration"])) if facts.get("duration") else None),
+                    max_duration=params.get("max_duration", 900),
+                )
+            except VerificationFailed as vf:
+                if vr:
+                    _save_verification(conn, vr, vf.result, params.get("max_duration", 900))
+                raise
             result = res
+            if vr:
+                _save_verification(conn, vr, res, params.get("max_duration", 900))
 
         elif kind == "scan_library":
             folder = Path(params.get("folder") or get_setting(conn, "library.dir", "references_library"))
@@ -574,9 +620,25 @@ def run_job(job_id: str, db_path: Optional[str] = None) -> int:
             conn, job_id, status="failed", error=err_msg,
             finished_at=now_end,
         )
+        try:
+            end_unfinished_render_for_job(conn, job_id, "failed", err_msg[:1000])
+            if isinstance(exc, VerificationFailed) and active_render["id"]:
+                # The MP4 exists (the AI work was paid for): keep it, store the per-check results.
+                rid_f = active_render["id"]
+                row = get_render(conn, rid_f) or {}
+                vid = Path(row.get("output_path") or "")
+                if vid.is_file():
+                    _save_verification(conn, rid_f, exc.result, (get_topic(conn, topic_id) or {}).get("max_duration"))
+                    update_render_status(conn, rid_f, status="failed", error=err_msg[:1000],
+                                         output_path=str(vid), file_size=vid.stat().st_size)
+                    _store_video_facts(conn, rid_f, vid, vid.parent)
+                    ctx.log("[KEEP] The MP4 was kept and registered in the library even though verification failed.")
+        except Exception:
+            pass
         return 1
 
     finally:
+        set_llm_recorder(None)
         emitter.close()
         conn.close()
 

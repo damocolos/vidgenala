@@ -13,6 +13,7 @@ from ..schemas import (
 from ..range_stream import range_stream_response
 from ...db.repos.topics import get_topic
 from ...db.repos.renders import (
+    verification_summaries,
     create_render, get_render, list_renders_for_topic, list_all_renders,
     get_verification_for_render,
 )
@@ -69,15 +70,36 @@ def trigger_full_render(
     return JobAcceptedResponse(job_id=job_id)
 
 
+def enrich_renders(conn: sqlite3.Connection, rows: List[dict]) -> List[dict]:
+    """Add what the UI needs to show a video card: is the file still there, did it pass verification."""
+    summ = verification_summaries(conn, [r["id"] for r in rows])
+    titles = {}
+    for r in rows:
+        tid = r.get("topic_id")
+        if tid not in titles:
+            t = get_topic(conn, tid) if tid else None
+            titles[tid] = t["title"] if t else None
+    out = []
+    for r in rows:
+        d = dict(r)
+        p = d.get("output_path")
+        d["video_available"] = bool(p) and Path(p).is_file()
+        v = summ.get(d["id"])
+        d["verification_passed"] = v["passed"] if v else None
+        d["verification_total"] = v["total"] if v else None
+        d["topic_title"] = titles.get(d.get("topic_id"))
+        out.append(d)
+    return out
+
+
 @router.get("/renders", response_model=List[RenderResponse])
 def get_renders_list(
     topic_id: Optional[int] = Query(None),
     limit: int = Query(50, ge=1, le=500),
     conn: sqlite3.Connection = Depends(get_db_conn),
 ):
-    if topic_id:
-        return list_renders_for_topic(conn, topic_id)
-    return list_all_renders(conn, limit=limit)
+    rows = list_renders_for_topic(conn, topic_id) if topic_id else list_all_renders(conn, limit=limit)
+    return enrich_renders(conn, rows)
 
 
 @router.get("/renders/preview-image")
@@ -100,7 +122,16 @@ def get_render_by_id(render_id: int, conn: sqlite3.Connection = Depends(get_db_c
     r = get_render(conn, render_id)
     if not r:
         raise HTTPException(status_code=404, detail="Render not found.")
-    return r
+    return enrich_renders(conn, [r])[0]
+
+
+@router.get("/renders/{render_id}/poster")
+def get_render_poster(render_id: int, conn: sqlite3.Connection = Depends(get_db_conn)):
+    r = get_render(conn, render_id)
+    p = Path(r["poster_path"]) if r and r.get("poster_path") else None
+    if not p or not p.is_file() or not is_within(p, media_roots()):
+        raise HTTPException(status_code=404, detail="Poster not available.")
+    return FileResponse(p, media_type="image/jpeg")
 
 
 @router.get("/renders/{render_id}/video")

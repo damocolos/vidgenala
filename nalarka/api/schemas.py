@@ -150,6 +150,13 @@ class RenderResponse(BaseModel):
     orientation: Optional[str] = None
     output_path: Optional[str] = None
     file_size: Optional[int] = None
+    poster_path: Optional[str] = None
+    sha256: Optional[str] = None
+    job_id: Optional[str] = None
+    video_available: bool = False
+    verification_passed: Optional[int] = None
+    verification_total: Optional[int] = None
+    topic_title: Optional[str] = None
     error: Optional[str] = None
     created_at: str
     started_at: Optional[str] = None

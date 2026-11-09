@@ -15,6 +15,7 @@ from ..db.repos.jobs import (
     get_job, update_job_status, list_active_jobs, list_jobs,
 )
 from ..db.repos.settings import get_setting
+from ..db.repos.renders import end_unfinished_render_for_job
 
 def _popen_group_kwargs() -> dict:
     """Start workers in their own process group so cancel can kill ffmpeg/render children too."""
@@ -124,6 +125,7 @@ class JobDispatcher:
                         error="Job process was interrupted or terminated unexpectedly.",
                         finished_at=time.strftime("%Y-%m-%d %H:%M:%S"),
                     )
+                    end_unfinished_render_for_job(conn, jid, "failed", "Job process was interrupted or terminated unexpectedly.")
         finally:
             conn.close()
 
@@ -180,6 +182,7 @@ class JobDispatcher:
                                     error=j.get("error") or f"Worker process crashed (exit code {ret})",
                                     finished_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                                 )
+                                end_unfinished_render_for_job(conn, jid, "failed", f"Worker process crashed (exit code {ret})")
                         except Exception:
                             pass
 
@@ -271,6 +274,7 @@ class JobDispatcher:
                 error="Cancelled by user.",
                 finished_at=time.strftime("%Y-%m-%d %H:%M:%S"),
             )
+            end_unfinished_render_for_job(conn, job_id, "canceled", "Cancelled by user.")
             return True
         finally:
             conn.close()

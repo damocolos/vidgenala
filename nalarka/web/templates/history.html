@@ -2,11 +2,12 @@
 
 {% block title %}Render History - Nalarka Studio{% endblock %}
 
+{% from "_video_card.html" import video_card %}
 {% block content %}
-<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+<div class="page-head">
   <div>
-    <h1 style="font-size: 1.5rem; font-weight: 700;">Render History & Verification</h1>
-    <p style="color: var(--text-muted); font-size: 0.9rem;">View, stream, and inspect rendered videos and 7-point verification suite passes</p>
+    <h1>Render History & Verification</h1>
+    <p>Every finished video is saved in the database with its checks. Play, download or verify it again here.</p>
   </div>
 </div>
 
@@ -14,68 +15,13 @@
   <div class="card-header">
     <div class="card-title">All Video Renders ({{ renders|length }})</div>
   </div>
-  <div class="table-container">
-    {% if renders %}
-    <table>
-      <thead>
-        <tr>
-          <th style="width: 50px;">ID</th>
-          <th>Topic</th>
-          <th>File</th>
-          <th>Resolution</th>
-          <th>Duration</th>
-          <th>Frames</th>
-          <th>Verification</th>
-          <th>Created</th>
-          <th style="text-align: right; width: 220px;">Actions</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for r in renders %}
-        <tr>
-          <td>#{{ r.id }}</td>
-          <td>
-            <a href="/topics/{{ r.topic_id }}" style="color: var(--accent-orange); text-decoration: none; font-weight: 600;">
-              Topic #{{ r.topic_id }}
-            </a>
-          </td>
-          <td style="font-family: var(--font-mono); font-size: 0.82rem;">
-            {% if r.output_path %}
-              {{ r.output_path.split('\\')[-1].split('/')[-1] }}
-            {% else %}
-              -
-            {% endif %}
-          </td>
-          <td>{% if r.width and r.height %}{{ r.width }}x{{ r.height }}{% else %}-{% endif %}</td>
-          <td>{% if r.total_dur %}{{ "%.1f"|format(r.total_dur) }}s{% else %}-{% endif %}</td>
-          <td>{{ r.frame_count or "-" }}</td>
-          <td>
-            {% if r.verification_passed is sameas true %}
-            <button class="badge badge-green" style="border:none; cursor:pointer;" onclick="showVerificationModal({{ r.id }})">7/7 PASSED</button>
-            {% elif r.verification_passed is sameas false %}
-            <button class="badge badge-red" style="border:none; cursor:pointer;" onclick="showVerificationModal({{ r.id }})">FAILED</button>
-            {% else %}
-            <span class="badge">Unverified</span>
-            {% endif %}
-          </td>
-          <td style="color: var(--text-dim); font-size: 0.85rem;">{{ r.created_at[:19] if r.created_at else '-' }}</td>
-          <td style="text-align: right;">
-            {% if r.output_path %}
-            <button class="btn btn-secondary btn-sm" onclick="playVideoModal({{ r.id }}, 'Render #{{ r.id }} - Topic #{{ r.topic_id }}')">Play</button>
-            <a href="/api/renders/{{ r.id }}/download" class="btn btn-secondary btn-sm" download>Download</a>
-            <button class="btn btn-secondary btn-sm" onclick="triggerVerifyHistory({{ r.id }})">Verify</button>
-            {% else %}
-            <span style="color: var(--text-dim); font-size: 0.8rem;">{{ r.status }}</span>
-            {% endif %}
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-    {% else %}
-    <p style="text-align: center; color: var(--text-muted); padding: 3rem;">No video renders recorded yet. Create a topic and run the full render pipeline to see results here.</p>
-    {% endif %}
+  {% if renders %}
+  <div class="video-grid">
+    {% for r in renders %}{{ video_card(r) }}{% endfor %}
   </div>
+  {% else %}
+  <div class="empty-state"><b>No video yet</b>Open a topic, write or generate the script, add a voiceover, then render. The finished video shows up here.</div>
+  {% endif %}
 </div>
 
 <script>
@@ -84,11 +30,12 @@ async function triggerVerifyHistory(renderId) {
     const res = await fetch(`/api/renders/${renderId}/verify`, { method: 'POST' });
     if (!res.ok) throw new Error("Failed to start verification");
     const data = await res.json();
-    showToast("Verification job queued! Connecting...", "success");
-    connectJobEvents(data.job_id, {
-      onDone: () => {
-        showVerificationModal(renderId);
-      }
+    showToast("Verification started. Watch it in Activity.", "success");
+    toggleActivity(true, data.job_id);
+    window.addEventListener("nalarka:job-finished", function once(e) {
+      if (e.detail.jobId !== data.job_id) return;
+      window.removeEventListener("nalarka:job-finished", once);
+      showVerificationModal(renderId);
     });
   } catch (err) {
     showToast(err.message, "error");

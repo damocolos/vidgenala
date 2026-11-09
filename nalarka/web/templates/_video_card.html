@@ -1,0 +1,41 @@
+{% macro video_card(r) %}
+<article class="video-card">
+  {% if r.video_available %}
+  <button class="video-thumb {% if r.width and r.height and r.width > r.height %}landscape{% endif %}" onclick="playVideoModal({{ r.id }}, 'Render #{{ r.id }}')" aria-label="Play render {{ r.id }}">
+    {% if r.poster_path %}<img src="/api/renders/{{ r.id }}/poster" alt="" loading="lazy" onerror="this.remove()">{% endif %}
+    <span class="play"></span>
+    {% if r.total_dur %}<span class="tc">{{ r.total_dur // 60 }}:{{ '%02d'|format(r.total_dur % 60) }}</span>{% endif %}
+  </button>
+  {% else %}
+  <div class="video-thumb empty {% if r.width and r.height and r.width > r.height %}landscape{% endif %}" role="img" aria-label="No video file"></div>
+  {% endif %}
+  <div class="video-meta">
+    <h4>
+      <a href="/topics/{{ r.topic_id }}">Topic #{{ r.topic_id }}</a>
+      {% if r.status in ('queued', 'running') %}<span class="badge badge-blue">Rendering</span>
+      {% elif r.verification_total %}
+        <button class="badge {{ 'badge-green' if r.verification_passed == r.verification_total else 'badge-red' }}" style="border:0" onclick="showVerificationModal({{ r.id }})">{{ r.verification_passed }}/{{ r.verification_total }} checks</button>
+      {% elif r.status == 'failed' %}<span class="badge badge-red">Failed</span>
+      {% elif r.status == 'canceled' %}<span class="badge">Canceled</span>
+      {% else %}<span class="badge">Not verified</span>{% endif %}
+    </h4>
+    {% if r.topic_title %}<div style="font-size:.85rem; color: var(--ink-soft); margin-top:.1rem;">{{ r.topic_title }}</div>{% endif %}
+    <div class="video-facts">
+      {% if r.width and r.height %}{{ r.width }}×{{ r.height }}{% else %}-{% endif %}
+      {% if r.total_dur %} · {{ r.total_dur }}s{% endif %}
+      {% if r.file_size %} · {{ '%.1f'|format(r.file_size / 1048576) }} MB{% endif %}
+      {% if r.sha256 %}<br>sha {{ r.sha256[:8] }}{% endif %}
+      <br>{{ (r.finished_at or r.created_at or '')[:16]|replace('T', ' ') }}
+    </div>
+    {% if r.status == 'failed' and r.video_available %}<div style="font-size:.8rem; color: var(--ink-soft); margin-top:.25rem;">Verification failed, video kept.</div>
+    {% elif r.status == 'failed' and r.error %}<div class="text-danger" style="font-size:.8rem; margin-top:.25rem;">{{ r.error[:140] }}</div>{% endif %}
+    {% if r.video_available %}
+    <div class="video-actions">
+      <button class="btn btn-secondary btn-sm" onclick="playVideoModal({{ r.id }}, 'Render #{{ r.id }} - Topic #{{ r.topic_id }}')">Play</button>
+      <a href="/api/renders/{{ r.id }}/download" class="btn btn-secondary btn-sm" download>Download</a>
+      <button class="btn btn-secondary btn-sm" onclick="triggerVerifyHistory({{ r.id }})">Verify</button>
+    </div>
+    {% endif %}
+  </div>
+</article>
+{% endmacro %}

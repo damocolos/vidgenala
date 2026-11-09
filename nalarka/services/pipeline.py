@@ -204,6 +204,35 @@ def execute_generate_voiceover(
     }
 
 
+def _words_signature(vo: Path, whisper_size: str, lang: str) -> dict:
+    st = vo.stat()
+    return {"vo": str(vo.resolve()), "size": st.st_size, "mtime": int(st.st_mtime), "whisper": whisper_size, "lang": lang}
+
+
+def _save_cached_words(workdir: Path, vo: Path, whisper_size: str, lang: str, words: list) -> None:
+    """Keep the transcript next to the job so a resumed run sees identical word timings
+    (identical timings => identical AI prompts => saved AI responses can be replayed)."""
+    try:
+        with open(Path(workdir) / "words.json", "w", encoding="utf-8") as f:
+            json.dump({"sig": _words_signature(vo, whisper_size, lang), "words": words}, f, ensure_ascii=False)
+    except Exception:
+        pass
+
+
+def _load_cached_words(resume_workdir, vo: Path, whisper_size: str, lang: str, log_fn):
+    if not resume_workdir:
+        return None
+    path = Path(resume_workdir) / "words.json"
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if data.get("sig") == _words_signature(vo, whisper_size, lang) and data.get("words"):
+            log_fn(f"[RESUME] Reusing saved transcript ({len(data['words'])} words) from the previous run.")
+            return data["words"]
+    except Exception:
+        pass
+    return None
+
+
 def execute_full_render(
     ctx: RunContext,
     base_url: str,
@@ -225,6 +254,7 @@ def execute_full_render(
     existing_plan: Optional[dict] = None,
     existing_namespace: Optional[Dict[str, Any]] = None,
     on_plan_ready: Optional[Callable[[dict, Dict[str, Any], List[dict]], None]] = None,
+    resume_workdir: Optional[Union[str, Path]] = None,
 ) -> dict:
     """Executes full video generation pipeline from voiceover and script to verified MP4."""
     ctx.check_cancelled()
@@ -262,7 +292,10 @@ def execute_full_render(
     # Speech alignment via Whisper
     ctx.set_progress(32, f"Extracting word timestamps (Faster-Whisper {whisper_size})...")
     whisper_lang = "en" if "English" in language else "id"
-    words = extract_word_timestamps(str(vo), whisper_size, ctx.log, language=whisper_lang)
+    words = _load_cached_words(resume_workdir, vo, whisper_size, whisper_lang, ctx.log)
+    if words is None:
+        words = extract_word_timestamps(str(vo), whisper_size, ctx.log, language=whisper_lang)
+        _save_cached_words(ctx.workdir, vo, whisper_size, whisper_lang, words)
 
     ctx.check_cancelled()
     scene_mod_path = ctx.workdir / "generated_scenes.py"

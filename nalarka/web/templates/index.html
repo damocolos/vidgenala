@@ -3,62 +3,56 @@
 {% block title %}Dashboard & Topics - Nalarka Studio{% endblock %}
 
 {% block content %}
-<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+{% from "_video_card.html" import video_card %}
+<div class="page-head">
   <div>
-    <h1 style="font-size: 1.5rem; font-weight: 700;">Studio Dashboard</h1>
-    <p style="color: var(--text-muted); font-size: 0.9rem;">Manage topics, script generation, and video renders</p>
+    <h1>Studio</h1>
+    <p>Your finished videos and the topics behind them.</p>
   </div>
-  <button class="btn btn-primary" onclick="openModal('new-topic-modal')">+ Create New Topic</button>
+  <button class="btn btn-primary" onclick="openModal('new-topic-modal')">New topic</button>
 </div>
 
-<!-- Quick Stats -->
-<div class="grid-3" style="margin-bottom: 1.5rem;">
-  <div class="card" style="margin-bottom: 0;">
-    <div style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.25rem;">Total Topics</div>
-    <div style="font-size: 1.8rem; font-weight: 700; color: var(--text-main);">{{ topics|length }}</div>
-  </div>
-  <div class="card" style="margin-bottom: 0;">
-    <div style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.25rem;">Library Items</div>
-    <div style="font-size: 1.8rem; font-weight: 700; color: var(--accent-blue);">{{ library_count|default(0) }}</div>
-  </div>
-  <div class="card" style="margin-bottom: 0;">
-    <div style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.25rem;">Total Renders</div>
-    <div style="font-size: 1.8rem; font-weight: 700; color: var(--accent-green);">{{ recent_renders|length }}</div>
-  </div>
-</div>
-
-<!-- Topics List -->
-<div class="card">
+<!-- Latest videos first: this is what the studio produces -->
+<section class="card" aria-labelledby="latest-videos">
   <div class="card-header">
-    <div class="card-title">Topics & Projects</div>
+    <div class="card-title" id="latest-videos">Latest videos</div>
+    <a href="/history" class="btn btn-secondary btn-sm">All videos ({{ recent_renders|length }})</a>
+  </div>
+  {% if recent_renders %}
+  <div class="video-grid">
+    {% for r in recent_renders[:4] %}{{ video_card(r) }}{% endfor %}
+  </div>
+  {% else %}
+  <div class="empty-state"><b>No video yet</b>Open a topic, write or generate the script, add a voiceover, then render. Finished videos are saved here.</div>
+  {% endif %}
+</section>
+
+<section class="card" aria-labelledby="topics-title">
+  <div class="card-header">
+    <div class="card-title" id="topics-title">Topics ({{ topics|length }})</div>
+    <span class="card-note">{{ library_count|default(0) }} files in library</span>
   </div>
   <div class="table-container">
     {% if topics %}
     <table>
       <thead>
         <tr>
-          <th style="width: 60px;">ID</th>
-          <th>Topic Title</th>
-          <th style="width: 120px;">Language</th>
-          <th style="width: 120px;">Target Dur</th>
-          <th style="width: 160px;">Created</th>
-          <th style="width: 180px; text-align: right;">Actions</th>
+          <th>Topic</th>
+          <th style="width: 110px;">Language</th>
+          <th style="width: 100px;">Target</th>
+          <th style="width: 150px;">Created</th>
+          <th style="width: 170px; text-align: right;"><span class="sr-only">Actions</span></th>
         </tr>
       </thead>
       <tbody>
         {% for t in topics %}
         <tr>
-          <td>#{{ t.id }}</td>
-          <td>
-            <a href="/topics/{{ t.id }}" style="color: var(--accent-orange); text-decoration: none; font-weight: 600;">
-              {{ t.title }}
-            </a>
-          </td>
-          <td><span class="badge">{{ t.language }}</span></td>
+          <td><a href="/topics/{{ t.id }}" class="row-link">{{ t.title }}</a></td>
+          <td>{{ t.language }}</td>
           <td>{{ t.max_duration }}s</td>
-          <td style="color: var(--text-dim); font-size: 0.85rem;">{{ t.created_at[:19] }}</td>
+          <td class="mono-dim">{{ t.created_at[:16]|replace('T', ' ') }}</td>
           <td style="text-align: right;">
-            <a href="/topics/{{ t.id }}" class="btn btn-primary btn-sm">Open Studio</a>
+            <a href="/topics/{{ t.id }}" class="btn btn-primary btn-sm">Open studio</a>
             <button class="btn btn-secondary btn-sm" onclick="deleteTopic({{ t.id }})">Delete</button>
           </td>
         </tr>
@@ -66,62 +60,11 @@
       </tbody>
     </table>
     {% else %}
-    <div style="text-align: center; padding: 3rem 1rem; color: var(--text-muted);">
-      <p style="margin-bottom: 1rem;">No topics created yet.</p>
-      <button class="btn btn-primary btn-sm" onclick="openModal('new-topic-modal')">+ Create Your First Topic</button>
-    </div>
+    <div class="empty-state"><b>No topics yet</b>A topic is one video: its script, voiceover and renders.
+      <div style="margin-top:.75rem"><button class="btn btn-primary btn-sm" onclick="openModal('new-topic-modal')">Create your first topic</button></div></div>
     {% endif %}
   </div>
-</div>
-
-<!-- Recent Renders -->
-{% if recent_renders %}
-<div class="card">
-  <div class="card-header">
-    <div class="card-title">Recent Renders</div>
-    <a href="/history" style="font-size: 0.85rem; color: var(--accent-orange); text-decoration: none;">View all &rarr;</a>
-  </div>
-  <div class="table-container">
-    <table>
-      <thead>
-        <tr>
-          <th>Topic</th>
-          <th>Resolution</th>
-          <th>Duration</th>
-          <th>Frames</th>
-          <th>Status</th>
-          <th style="text-align: right;">Actions</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for r in recent_renders[:5] %}
-        <tr>
-          <td><strong>Topic #{{ r.topic_id }}</strong></td>
-          <td>{% if r.width and r.height %}{{ r.width }}x{{ r.height }}{% else %}-{% endif %}</td>
-          <td>{% if r.total_dur %}{{ "%.1f"|format(r.total_dur) }}s{% else %}-{% endif %}</td>
-          <td>{{ r.frame_count or "-" }}</td>
-          <td>
-            {% if r.status in ('succeeded', 'done') %}
-            <span class="badge badge-green">Ready</span>
-            {% else %}
-            <span class="badge badge-orange">{{ r.status }}</span>
-            {% endif %}
-          </td>
-          <td style="text-align: right;">
-            {% if r.status in ('succeeded', 'done') and r.output_path %}
-            <button class="btn btn-secondary btn-sm" onclick="playVideoModal({{ r.id }}, 'Topic #{{ r.topic_id }} Render')">Play</button>
-            <a href="/api/renders/{{ r.id }}/download" class="btn btn-secondary btn-sm" download>Download</a>
-            {% else %}
-            <span style="color: var(--text-dim); font-size: 0.8rem;">{{ r.status }}</span>
-            {% endif %}
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-</div>
-{% endif %}
+</section>
 
 <!-- New Topic Modal -->
 <div id="new-topic-modal" class="modal-overlay" onclick="if(event.target===this) closeModal('new-topic-modal');">
@@ -198,3 +141,11 @@ async function deleteTopic(id) {
 }
 </script>
 {% endblock %}
+
+<script>
+async function triggerVerifyHistory(renderId) {
+  const res = await fetch(`/api/renders/${renderId}/verify`, { method: 'POST' });
+  if (!res.ok) { showToast("Could not start verification", "error"); return; }
+  toggleActivity(true, (await res.json()).job_id);
+}
+</script>

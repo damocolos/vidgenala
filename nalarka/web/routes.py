@@ -11,7 +11,7 @@ from ..db.repos.topics import get_topic, list_topics
 from ..db.repos.scripts import get_current_script, list_scripts_for_topic
 from ..db.repos.voiceovers import list_voiceovers_for_topic
 from ..db.repos.library import list_library_items
-from ..db.repos.renders import list_all_renders, list_renders_for_topic, get_verification_for_render
+from ..db.repos.renders import list_all_renders, list_renders_for_topic, get_verification_for_render, verification_summaries
 from ..db.repos.storyboards import get_current_storyboard, list_beats_for_storyboard
 from ..db.repos.settings import (
     list_providers, get_provider, get_models_catalog,
@@ -21,6 +21,7 @@ from ..core.script import script_word_budget, script_section_count, estimate_vid
 from ..core.scripttext import parse_tagged_script
 from ..core.render import default_render_workers
 from ..services.secrets import decrypt_secret
+from ..api.routers.renders import enrich_renders
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
@@ -45,7 +46,7 @@ def index_redirect():
 def topics_dashboard(request: Request, conn: sqlite3.Connection = Depends(get_db_conn)):
     topics = list_topics(conn)
     library_items = list_library_items(conn)
-    recent_renders = list_all_renders(conn, limit=10)
+    recent_renders = enrich_renders(conn, list_all_renders(conn, limit=10))
 
     return templates.TemplateResponse(
         request,
@@ -136,6 +137,7 @@ def topic_studio(topic_id: int, request: Request, conn: sqlite3.Connection = Dep
     # Latest Render
     renders = list_renders_for_topic(conn, topic_id)
     latest_render = renders[0] if renders else None
+    latest_verification = get_verification_for_render(conn, latest_render["id"]) if latest_render else None
 
     return templates.TemplateResponse(
         request,
@@ -157,6 +159,7 @@ def topic_studio(topic_id: int, request: Request, conn: sqlite3.Connection = Dep
             "selected_ref": selected_ref,
             "beats": beats,
             "latest_render": latest_render,
+            "latest_verification": latest_verification,
             "default_workers": default_render_workers(),
         },
     )
@@ -182,11 +185,7 @@ def library_view(request: Request, conn: sqlite3.Connection = Depends(get_db_con
 
 @web_router.get("/history", response_class=HTMLResponse)
 def history_view(request: Request, conn: sqlite3.Connection = Depends(get_db_conn)):
-    renders = list_all_renders(conn, limit=100)
-    # Attach verification status
-    for r in renders:
-        v = get_verification_for_render(conn, r["id"])
-        r["verification_passed"] = v["passed"] if v else None
+    renders = enrich_renders(conn, list_all_renders(conn, limit=100))
 
     return templates.TemplateResponse(
         request,

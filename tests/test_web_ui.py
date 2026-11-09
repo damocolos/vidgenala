@@ -45,9 +45,9 @@ def test_index_redirect(client):
 def test_topics_dashboard_view(client):
     res = client.get("/topics")
     assert res.status_code == 200
-    assert "Studio Dashboard" in res.text
-    assert "Create New Topic" in res.text
-    assert "Total Topics" in res.text
+    assert "Latest videos" in res.text
+    assert "New topic" in res.text
+    assert "Topics (" in res.text
 
 
 def test_topic_studio_view_parity(client):

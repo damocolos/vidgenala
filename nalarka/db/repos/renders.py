@@ -128,3 +128,52 @@ def get_verification_for_render(conn: sqlite3.Connection, render_id: int) -> Opt
     d = dict(row)
     d["results"] = json.loads(d["results_json"]) if d["results_json"] else []
     return d
+
+
+def bind_render_to_job(conn: sqlite3.Connection, render_id: int, job_id: str) -> None:
+    """Links render <-> job both ways so cancel/crash/resume can find the render."""
+    with conn:
+        conn.execute("UPDATE renders SET job_id = ? WHERE id = ?", (job_id, render_id))
+        conn.execute("UPDATE jobs SET render_id = ? WHERE id = ?", (render_id, job_id))
+
+
+def update_render_media(conn: sqlite3.Connection, render_id: int, poster_path: Optional[str], sha256: Optional[str]) -> None:
+    with conn:
+        conn.execute("UPDATE renders SET poster_path = ?, sha256 = ? WHERE id = ?", (poster_path, sha256, render_id))
+
+
+def end_unfinished_render_for_job(conn: sqlite3.Connection, job_id: str, status: str, error: Optional[str]) -> None:
+    """Never leave a render stuck on queued/running after its job failed, was canceled or crashed."""
+    with conn:
+        conn.execute(
+            """
+            UPDATE renders SET status = ?, error = COALESCE(error, ?), finished_at = datetime('now')
+            WHERE status IN ('queued','running')
+              AND (job_id = ? OR id = (SELECT render_id FROM jobs WHERE id = ?))
+            """,
+            (status, error, job_id, job_id),
+        )
+
+
+def update_render_metrics(conn: sqlite3.Connection, render_id: int, width=None, height=None, total_dur=None) -> None:
+    """Store what ffprobe measured, so history/UI can show resolution and length."""
+    with conn:
+        conn.execute(
+            "UPDATE renders SET width = COALESCE(?, width), height = COALESCE(?, height), "
+            "total_dur = COALESCE(?, total_dur) WHERE id = ?",
+            (width, height, int(round(total_dur)) if total_dur else None, render_id),
+        )
+
+
+def verification_summaries(conn: sqlite3.Connection, render_ids: List[int]) -> Dict[int, dict]:
+    """{render_id: {"passed": n, "total": n}} for the latest verification of each render."""
+    if not render_ids:
+        return {}
+    marks = ",".join("?" for _ in render_ids)
+    rows = conn.execute(
+        f"""SELECT v.render_id, v.passed, v.total FROM verifications v
+            JOIN (SELECT render_id, MAX(id) AS mid FROM verifications
+                  WHERE render_id IN ({marks}) GROUP BY render_id) m ON v.id = m.mid""",
+        render_ids,
+    ).fetchall()
+    return {r["render_id"]: {"passed": r["passed"], "total": r["total"]} for r in rows}
