@@ -6,6 +6,7 @@ import hashlib
 import threading
 import logging
 import urllib.request
+from .llm_guard import ProviderGuard, ProviderCircuitOpen, get_llm_guard, set_llm_guard  # noqa: F401
 from typing import Optional, List, Dict, Tuple, Any
 from openai import OpenAI
 
@@ -17,7 +18,7 @@ def is_openrouter(base_url: str) -> bool:
     return "openrouter.ai" in (base_url or "").lower()
 
 
-def make_client(base_url: str, api_key: str, timeout: float = 300.0, max_retries: int = 3) -> OpenAI:
+def make_client(base_url: str, api_key: str, timeout: float = 300.0, max_retries: int = 1) -> OpenAI:
     """Builds an OpenAI-SDK client. OpenRouter gets its optional attribution headers automatically."""
     key = (api_key or "").strip()
     if not key:
@@ -116,7 +117,10 @@ def _chat_text_impl(
             if max_tokens and "max_tokens" not in dropped:
                 kw["max_tokens"] = max_tokens
             try:
-                return client.chat.completions.create(**kw)
+                # The non-streaming fallback must not retry inside the SDK: a stuck provider would cost
+                # (retries x timeout) minutes per call. The stop point handles repeated failures instead.
+                target = client if (stream or not hasattr(client, "with_options")) else client.with_options(max_retries=0)
+                return target.chat.completions.create(**kw)
             except Exception as err:
                 msg = str(err).lower()
                 if "temperature" in msg and "temperature" not in dropped:
@@ -140,6 +144,8 @@ def _chat_text_impl(
     try:
         stream = _create(True, temperature)
         for chunk in stream:
+            if time.time() - t0 > timeout:
+                raise TimeoutError(f"no complete answer within {int(timeout)}s")
             chunk_err = getattr(chunk, "error", None)
             if chunk_err:
                 raise RuntimeError(f"provider error mid-stream: {chunk_err}")
@@ -210,7 +216,27 @@ def accept_last_call() -> None:
             pass
 
 
-def _chat_text(
+def _chat_text(*args, **kwargs) -> Tuple[str, Optional[str]]:
+    """Guarded + ledger-aware chat completion. Returns (text, finish_reason).
+
+    The provider guard (core/llm_guard.py) counts real network failures and raises
+    ProviderCircuitOpen to stop the whole job; replayed ledger answers never touch it."""
+    guard = get_llm_guard()
+    if guard is not None:
+        guard.before_call()
+    _TLS.replayed = False
+    try:
+        out = _chat_text_ledger(*args, **kwargs)
+    except Exception as err:
+        if guard is not None and not getattr(_TLS, "replayed", False):
+            guard.on_failure(err)
+        raise
+    if guard is not None and not getattr(_TLS, "replayed", False):
+        guard.on_success()
+    return out
+
+
+def _chat_text_ledger(
     base_url: str,
     api_key: str,
     model: str,
@@ -239,6 +265,7 @@ def _chat_text(
     except Exception:
         hit = None
     if hit:
+        _TLS.replayed = True
         log_fn(f"[{tag}] Replayed saved AI response ({len(hit['response_text'] or '')} chars) - no API call, no cost.")
         try:
             _TLS.call_id = rec.record(status="replayed", response_text=hit["response_text"],

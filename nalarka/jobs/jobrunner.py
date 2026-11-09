@@ -60,6 +60,7 @@ from ..db.repos.renders import (
 )
 from ..core.verify import VerificationFailed
 from ..core.llm import set_llm_recorder
+from ..core.llm_guard import ProviderGuard, ProviderCircuitOpen, set_llm_guard
 
 
 def _save_verification(conn, rid, ver_res: dict, max_duration) -> int:
@@ -118,6 +119,17 @@ def run_job(job_id: str, db_path: Optional[str] = None) -> int:
     resume_of = params.get("resume_of")
     chain = job_chain(conn, resume_of) if resume_of else []
     set_llm_recorder(DbLLMRecorder(db_path, job_id, topic_id, replay_job_ids=chain))
+    # Stop point: too many failed AI calls, or AI work taking too long, ends the job (resumable).
+    def _int_setting(key: str, default: int) -> int:
+        try:
+            return int(get_setting(conn, key, default))
+        except (TypeError, ValueError):
+            return default
+    set_llm_guard(ProviderGuard(
+        max_consecutive=_int_setting("ai.max_consecutive_failures", 3),
+        max_total=_int_setting("ai.max_total_failures", 6),
+        max_minutes=_int_setting("ai.max_minutes_per_run", 45),
+    ))
     resume_workdir = (data_root() / "renders" / resume_of) if resume_of else None
     active_render = {"id": None}
 
@@ -606,6 +618,21 @@ def run_job(job_id: str, db_path: Optional[str] = None) -> int:
         ctx.log(f"[JOB COMPLETE] Finished {kind} successfully.")
         return 0
 
+    except ProviderCircuitOpen as stop:
+        err_msg = str(stop)
+        ctx.log(f"[STOPPED] {err_msg}")
+        emitter.flush()
+        update_job_status(
+            conn, job_id, status="failed", error=err_msg,
+            status_text="Stopped: AI provider unstable (resumable)",
+            finished_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        )
+        try:
+            end_unfinished_render_for_job(conn, job_id, "failed", err_msg[:1000])
+        except Exception:
+            pass
+        return 3
+
     except Exception as exc:
         err_msg = str(exc)
         stack = traceback.format_exc()
@@ -639,6 +666,7 @@ def run_job(job_id: str, db_path: Optional[str] = None) -> int:
 
     finally:
         set_llm_recorder(None)
+        set_llm_guard(None)
         emitter.close()
         conn.close()
 

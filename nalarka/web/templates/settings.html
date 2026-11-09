@@ -97,6 +97,32 @@
       </form>
     </div>
 
+    <!-- AI stop point -->
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">AI stop point</div>
+      </div>
+      <p class="text-muted" style="font-size:.85rem;margin-bottom:1rem;">
+        When the provider keeps failing or answers too slowly, the job stops instead of retrying for an hour.
+        Everything the AI already returned is saved, so you can press Resume later. Set 0 to turn a limit off.
+      </p>
+      <form onsubmit="saveStopPoint(event)">
+        <div class="form-group">
+          <label for="sp-consecutive">Stop after failed calls in a row</label>
+          <input type="number" id="sp-consecutive" min="0" max="20" placeholder="3">
+        </div>
+        <div class="form-group">
+          <label for="sp-total">Stop after failed calls in one run</label>
+          <input type="number" id="sp-total" min="0" max="100" placeholder="6">
+        </div>
+        <div class="form-group">
+          <label for="sp-minutes">Stop after AI work has run for (minutes)</label>
+          <input type="number" id="sp-minutes" min="0" max="600" placeholder="45">
+        </div>
+        <button type="submit" class="btn btn-primary btn-sm">Save limits</button>
+      </form>
+    </div>
+
     <!-- Backup & Migration (F-08) -->
     <div class="card">
       <div class="card-header">
@@ -122,6 +148,26 @@
 </div>
 
 <script>
+const STOP_KEYS = {"sp-consecutive": "ai.max_consecutive_failures", "sp-total": "ai.max_total_failures", "sp-minutes": "ai.max_minutes_per_run"};
+async function loadStopPoint() {
+  try {
+    const cfg = await (await fetch('/api/config')).json();
+    for (const [id, key] of Object.entries(STOP_KEYS)) {
+      const el = document.getElementById(id);
+      if (el && cfg[key] !== undefined) el.value = cfg[key];
+    }
+  } catch (e) { /* inputs stay empty; saving still works */ }
+}
+async function saveStopPoint(e) {
+  e.preventDefault();
+  const settings = {};
+  for (const [id, key] of Object.entries(STOP_KEYS)) settings[key] = document.getElementById(id).value;
+  const res = await fetch('/api/config', {method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({settings})});
+  if (res.ok) showToast('Limits saved. They apply to the next job you start.', 'success');
+  else showToast('Could not save limits: ' + ((await res.json().catch(() => ({}))).detail || res.status), 'error');
+}
+loadStopPoint();
+
 async function saveProviderForm(e, key) {
   e.preventDefault();
   const base_url = document.getElementById(`prov-base-${key}`).value.trim();

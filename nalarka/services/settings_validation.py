@@ -43,6 +43,12 @@ def validate_settings(settings: Dict[str, Any]) -> Tuple[Dict[str, Any], List[st
             val = _coerce(vtype, v)
             if k == "render.max_duration":
                 val = max(15, min(900, val))
+            elif k == "ai.max_consecutive_failures":
+                val = max(0, min(20, val))
+            elif k == "ai.max_total_failures":
+                val = max(0, min(100, val))
+            elif k == "ai.max_minutes_per_run":
+                val = max(0, min(600, val))
             elif k == "render.workers":
                 val = max(1, min(16, val))
             elif k.startswith("tts.") and vtype == "float":

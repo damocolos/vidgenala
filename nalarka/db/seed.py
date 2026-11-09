@@ -30,6 +30,9 @@ DEFAULT_SETTINGS = [
     ("tts.ssml_breaks", "false", "bool"),
     ("library.dir", "references_library", "string"),
     ("library.selected_reference_id", "", "string"),
+    ("ai.max_consecutive_failures", "3", "int"),
+    ("ai.max_total_failures", "6", "int"),
+    ("ai.max_minutes_per_run", "45", "int"),
     ("ui.active_provider", "custom", "string"),
 ]
 
