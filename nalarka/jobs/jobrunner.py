@@ -1,5 +1,6 @@
 """Subprocess execution entrypoint for background jobs."""
 import os
+import math
 import sys
 import json
 import logging
@@ -37,7 +38,9 @@ from ..db.repos.renders import (
 )
 from ..services.context import RunContext
 from .events import JobEventEmitter
-from ..services.plan_assembler import save_plan, load_plan
+from ..services.plan_assembler import save_plan, load_plan, sync_code, count_saved_beats
+from ..core.audio import get_audio_duration
+from ..core.constants import INTRO_OUTRO_SECONDS
 from ..services.pipeline import (
     execute_generate_script, execute_generate_voiceover,
     execute_full_render, execute_reroll_beat,
@@ -61,6 +64,23 @@ from ..db.repos.renders import (
 from ..core.verify import VerificationFailed
 from ..core.llm import set_llm_recorder
 from ..core.llm_guard import ProviderGuard, ProviderCircuitOpen, set_llm_guard
+
+
+def _expected_total_dur(vo_path) -> Optional[int]:
+    """Video length the pipeline will compute for this voiceover (None if it cannot be probed)."""
+    try:
+        return math.ceil(get_audio_duration(str(vo_path), lambda m: None) + INTRO_OUTRO_SECONDS)
+    except Exception:
+        return None
+
+
+def _storyboard_matches(sb: dict, *, script_id, voiceover_id, total_dur) -> bool:
+    """A saved storyboard may only be reused for the same script, voiceover and video length.
+    Unknown values (None) never block reuse; a known mismatch does."""
+    for saved, now in ((sb.get("script_id"), script_id), (sb.get("voiceover_id"), voiceover_id), (sb.get("total_dur"), total_dur)):
+        if saved is not None and now is not None and int(saved) != int(now):
+            return False
+    return True
 
 
 def _save_verification(conn, rid, ver_res: dict, max_duration) -> int:
@@ -331,6 +351,14 @@ def run_job(job_id: str, db_path: Optional[str] = None) -> int:
                 existing_sb = get_storyboard(conn, specified_sb_id)
             elif reuse_sb:
                 existing_sb = get_current_storyboard(conn, topic_id)
+                if existing_sb and not _storyboard_matches(
+                    existing_sb, script_id=cur_sc["id"], voiceover_id=vo_id, total_dur=_expected_total_dur(vo_path),
+                ):
+                    ctx.log(
+                        f"[STORYBOARD] Saved storyboard #{existing_sb['id']} was made for a different script/voiceover/duration; "
+                        "it will not be reused. Generating a new one."
+                    )
+                    existing_sb = None
 
             existing_plan = None
             existing_ns = None
@@ -341,9 +369,11 @@ def run_job(job_id: str, db_path: Optional[str] = None) -> int:
                 try:
                     existing_plan, existing_ns = load_plan(conn, existing_sb["id"], ctx.log)
                     sb_id = existing_sb["id"]
+                    tr_id = existing_sb.get("transcript_id") or None
+                    done_n, total_n = count_saved_beats(conn, sb_id)
                     ctx.log(
-                        f"[STORYBOARD REUSE] Reusing storyboard #{existing_sb['id']} for Topic #{topic_id} "
-                        f"({len(existing_plan.get('scenes', []))} beats). Zero LLM tokens required!"
+                        f"[STORYBOARD REUSE] Reusing storyboard #{existing_sb['id']} for Topic #{topic_id}: "
+                        f"{done_n}/{total_n} beats already have code (only the rest will be requested from the AI)."
                     )
                 except Exception as e:
                     ctx.log(f"[STORYBOARD REUSE WARN] Could not load existing storyboard #{existing_sb['id']}: {e}. Will generate fresh.")
@@ -377,6 +407,14 @@ def run_job(job_id: str, db_path: Optional[str] = None) -> int:
                     )
                     ctx.log(f"[DB] Storyboard #{sb_id} saved to database immediately (safe from interruptions).")
 
+            def _on_code_update(plan_dict: dict, reason: str):
+                if not sb_id:
+                    return
+                changed = sync_code(conn, sb_id, plan_dict, reason=reason)
+                if changed:
+                    done, total = count_saved_beats(conn, sb_id)
+                    ctx.log(f"[DB] Saved {changed} beat(s) ({reason}). Storyboard #{sb_id}: {done}/{total} beats have code.")
+
             render_res = execute_full_render(
                 ctx=ctx,
                 base_url=prov["base_url"],
@@ -400,6 +438,7 @@ def run_job(job_id: str, db_path: Optional[str] = None) -> int:
                 existing_plan=existing_plan,
                 existing_namespace=existing_ns,
                 on_plan_ready=_on_plan_ready,
+                on_code_update=_on_code_update,
                 resume_workdir=resume_workdir,
             )
 
@@ -425,17 +464,11 @@ def run_job(job_id: str, db_path: Optional[str] = None) -> int:
                     is_current=True,
                 )
             else:
-                # Update any beats that were modified during audit loop
-                save_plan(
-                    conn,
-                    topic_id=topic_id,
-                    plan=render_res["plan"],
-                    script_id=cur_sc["id"],
-                    voiceover_id=vo_id,
-                    transcript_id=tr_id,
-                    coder_model=prov["coder_model"],
-                    is_current=True,
-                )
+                # Final sync in place (never a second storyboard): audit rewrites and late fixes.
+                sync_code(conn, sb_id, render_res["plan"], reason="final")
+                if tr_id:
+                    with conn:
+                        conn.execute("UPDATE storyboards SET transcript_id = ? WHERE id = ? AND transcript_id IS NULL", (tr_id, sb_id))
 
             # Link storyboard to render record
             if sb_id:

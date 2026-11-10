@@ -3,8 +3,8 @@ import math
 import json
 import threading
 from pathlib import Path
-from concurrent.futures import ThreadPoolExecutor
-from typing import List, Dict, Tuple, Any, Optional, Union
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Callable, List, Dict, Tuple, Any, Optional, Union
 
 from .constants import (
     MIN_BEAT_SECONDS, PASS1_WINDOW_SECONDS, PASS2_BATCH_BEATS,
@@ -170,6 +170,25 @@ def plan_storyboard(
     return scenes
 
 
+def beat_spans(source, size: int) -> List[Tuple[int, int]]:
+    """Half-open (lo, hi) spans of contiguous beat indices, each at most ``size`` long.
+    ``source`` is a count (all beats) or a list of beat indices (only those)."""
+    idx = list(range(source)) if isinstance(source, int) else sorted(set(source))
+    spans: List[Tuple[int, int]] = []
+    start = prev = None
+    for i in idx:
+        if start is None:
+            start = prev = i
+        elif i == prev + 1 and (i - start) < size:
+            prev = i
+        else:
+            spans.append((start, prev + 1))
+            start = prev = i
+    if start is not None:
+        spans.append((start, prev + 1))
+    return spans
+
+
 def generate_scene_code_batches(
     base_url: str,
     api_key: str,
@@ -182,15 +201,22 @@ def generate_scene_code_batches(
     cancel_event: Optional[threading.Event] = None,
     batch_beats: Optional[int] = None,
     parallel_calls: Optional[int] = None,
+    only_indices: Optional[List[int]] = None,
+    on_code_update: Optional[Callable[[dict, str], None]] = None,
 ):
     """PASS 2. Beats are coded in small batches (several calls in parallel) so output limits are never hit.
 
     ``batch_beats`` / ``parallel_calls`` override the defaults. Smaller batches mean shorter answers,
-    which helps providers or proxies that cut long responses (e.g. a 120 s gateway timeout)."""
+    which helps providers or proxies that cut long responses (e.g. a 120 s gateway timeout).
+
+    ``only_indices`` limits the work to beats that still have no code (retry-only-missing).
+    ``on_code_update(plan, reason)`` is called on this thread after EVERY finished batch, so each
+    paid-for answer is persisted immediately, even if another batch later fails."""
     size = max(1, int(batch_beats or PASS2_BATCH_BEATS))
     workers = max(1, int(parallel_calls or PASS2_PARALLEL_CALLS))
-    batches = [(i, min(i + size, len(scenes))) for i in range(0, len(scenes), size)]
-    log_fn(f"[PASS 2/2: VECTOR ARTIST] Coding {len(scenes)} beats in {len(batches)} batch(es) of up to {size} beat(s), {workers} call(s) in parallel...")
+    batches = beat_spans(len(scenes) if only_indices is None else only_indices, size)
+    todo = len(scenes) if only_indices is None else len(only_indices)
+    log_fn(f"[PASS 2/2: VECTOR ARTIST] Coding {todo} beat(s) in {len(batches)} batch(es) of up to {size} beat(s), {workers} call(s) in parallel...")
 
     def _run(span: Tuple[int, int]) -> Tuple[Tuple[int, int], Optional[str]]:
         if cancel_event is not None and cancel_event.is_set():
@@ -222,18 +248,40 @@ def generate_scene_code_batches(
             log_fn(f"[PASS 2 WARN] Batch {first_fn}-{last_fn} failed ({err}). The audit loop will rewrite these beats one by one.")
             return span, None
 
-    with ThreadPoolExecutor(max_workers=workers) as pool:
-        results = list(pool.map(_run, batches))
+    def _register(span: Tuple[int, int], code: Optional[str]) -> None:
+        if not code:
+            return
+        lo, hi = span
+        loaded = add_generated_code(plan, namespace, code, log_fn)
+        missing = [f"beat_{i + 1:02d}" for i in range(lo, hi) if f"beat_{i + 1:02d}" not in loaded]
+        if missing:
+            log_fn(f"[PASS 2 WARN] Missing/invalid after batch: {', '.join(missing)} (kept as 'missing'; the audit or the next render fills them).")
+        if on_code_update is not None:
+            try:
+                on_code_update(plan, "generated")
+            except Exception as err:   # saving must never kill a paid-for result
+                log_fn(f"[DB WARN] Could not save batch beat_{lo + 1:02d}-beat_{hi:02d}: {err}")
 
+    stop: Optional[BaseException] = None
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futures = [pool.submit(_run, b) for b in batches]
+        for fut in as_completed(futures):
+            if fut.cancelled():
+                continue
+            try:
+                span, code = fut.result()
+            except BaseException as exc:   # e.g. ProviderCircuitOpen: stop new calls, keep finished ones
+                if stop is None:
+                    stop = exc
+                    for f in futures:
+                        f.cancel()
+                continue
+            _register(span, code)   # on this thread: no races on `plan`
+
+    if stop is not None:
+        raise stop
     if cancel_event is not None and cancel_event.is_set():
         raise InterruptedError("Batch code generation cancelled.")
-
-    for (lo, hi), code in results:   # registered in order, on this thread (no races on `plan`)
-        if code:
-            loaded = add_generated_code(plan, namespace, code, log_fn)
-            missing = [f"beat_{i + 1:02d}" for i in range(lo, hi) if f"beat_{i + 1:02d}" not in loaded]
-            if missing:
-                log_fn(f"[PASS 2 WARN] Missing/invalid after batch: {', '.join(missing)} (will be rewritten by the audit).")
 
 
 def generate_two_pass_storyboard_and_code(
@@ -250,6 +298,8 @@ def generate_two_pass_storyboard_and_code(
     scene_module_path: Optional[Union[str, Path]] = None,
     batch_beats: Optional[int] = None,
     parallel_calls: Optional[int] = None,
+    on_scenes_ready: Optional[Callable[[dict], None]] = None,
+    on_code_update: Optional[Callable[[dict, str], None]] = None,
 ) -> Tuple[dict, Dict[str, Any]]:
     if cancel_event is not None and cancel_event.is_set():
         raise InterruptedError("Operation was cancelled by user.")
@@ -264,10 +314,17 @@ def generate_two_pass_storyboard_and_code(
     for s in scenes:
         log_fn(f"  Beat #{s['beat_id']:02d} [{s['start']:05.1f}s-{s['end']:05.1f}s] ({s.get('layout')}, {s.get('bg_color')}, {s.get('transition')}): {s.get('visual_blueprint')}")
 
+    if on_scenes_ready is not None:   # Pass 1 is paid for: save the skeleton before spending on Pass 2
+        try:
+            on_scenes_ready(plan)
+        except Exception as err:
+            log_fn(f"[DB WARN] Could not save the Pass 1 storyboard yet: {err}")
+
     namespace = new_scene_namespace()
     generate_scene_code_batches(
         base_url, api_key, model, topic, scenes, plan, namespace, log_fn,
         cancel_event=cancel_event, batch_beats=batch_beats, parallel_calls=parallel_calls,
+        on_code_update=on_code_update,
     )
     target_path = scene_module_path if scene_module_path else "generated_scenes.py"
     write_scene_module_file(plan, path=target_path)

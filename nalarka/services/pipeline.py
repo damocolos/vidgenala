@@ -33,8 +33,9 @@ from ..core.bgm import (
     generate_synthetic_ambient_bgm,
 )
 from ..core.storyboard import (
-    generate_two_pass_storyboard_and_code,
+    generate_two_pass_storyboard_and_code, generate_scene_code_batches,
 )
+from .plan_assembler import missing_beat_indices
 from ..core.scene_code import (
     build_namespace, register_beat_source, write_scene_module_file,
 )
@@ -257,6 +258,7 @@ def execute_full_render(
     resume_workdir: Optional[Union[str, Path]] = None,
     batch_beats: Optional[int] = None,
     parallel_calls: Optional[int] = None,
+    on_code_update: Optional[Callable[[dict, str], None]] = None,
 ) -> dict:
     """Executes full video generation pipeline from voiceover and script to verified MP4."""
     ctx.check_cancelled()
@@ -307,6 +309,20 @@ def execute_full_render(
         ctx.log(f"[STORYBOARD] Reusing existing storyboard plan with {len(existing_plan.get('scenes', []))} beats (ZERO LLM tokens required).")
         plan = existing_plan
         namespace = existing_namespace if existing_namespace is not None else build_namespace(plan.get("scene_sources", {}), ctx.log)
+        # Retry-only-missing: beats that already have working code are never requested again.
+        scenes_all = plan.get("scenes", [])
+        missing = missing_beat_indices(plan, namespace)
+        if missing:
+            ctx.log(f"[BEATS] Reusing {len(scenes_all) - len(missing)}/{len(scenes_all)} saved beats; generating {len(missing)} missing: "
+                    + ", ".join(f"beat_{int(scenes_all[i].get('beat_id', i + 1)):02d}" for i in missing))
+            ctx.set_progress(45, f"Generating {len(missing)} missing beat(s) via '{coder_model}'...")
+            generate_scene_code_batches(
+                base_url, api_key, coder_model, topic, scenes_all, plan, namespace, ctx.log,
+                cancel_event=ctx.cancel_event, batch_beats=batch_beats, parallel_calls=parallel_calls,
+                only_indices=missing, on_code_update=on_code_update,
+            )
+        else:
+            ctx.log(f"[BEATS] All {len(scenes_all)} beats already saved - no AI beat generation needed.")
     else:
         # Pass 1 & Pass 2
         ctx.set_progress(45, f"Running 2-Pass Storyboard & Vector Artist via '{coder_model}'...")
@@ -324,6 +340,8 @@ def execute_full_render(
             scene_module_path=temp_scene_mod_path,
             batch_beats=batch_beats,
             parallel_calls=parallel_calls,
+            on_scenes_ready=(lambda p: on_plan_ready(p, {}, words)) if on_plan_ready else None,
+            on_code_update=on_code_update,
         )
 
     # Persist timeline plan JSON immediately BEFORE audit loop
@@ -356,6 +374,7 @@ def execute_full_render(
         progress_fn=ctx.set_progress,
         cancel_event=ctx.cancel_event,
         scene_module_path=temp_scene_mod_path,
+        on_code_update=on_code_update,
     )
 
     # Update persisted timeline plan JSON after audit loop

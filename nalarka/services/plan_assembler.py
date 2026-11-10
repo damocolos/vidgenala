@@ -4,6 +4,7 @@ import sqlite3
 from typing import Dict, Any, Tuple, Optional, Callable
 
 from ..core.scene_code import build_namespace, new_scene_sources
+from ..db.repos.storyboards import update_beat_code
 
 KNOWN_SCENE_KEYS = {
     "beat_id", "start", "end", "layout", "bg_color", "transition",
@@ -152,3 +153,62 @@ def load_plan(
     effective_log = log_fn if log_fn is not None else (lambda m: None)
     namespace = build_namespace(plan["scene_sources"], effective_log)
     return plan, namespace
+
+
+def sync_code(conn: sqlite3.Connection, storyboard_id: int, plan: dict, reason: str = "generated") -> int:
+    """Writes the beat/helper code currently held in ``plan`` into an EXISTING storyboard (in place).
+
+    Only rows whose code actually changed are touched, so calling this after every AI batch or
+    audit fix is cheap and never creates a second storyboard. Returns the number of beats changed.
+    """
+    store = plan.get("scene_sources") or new_scene_sources()
+    changed = 0
+    # beat_revisions.reason is CHECK-constrained to pass2 / audit / reroll
+    rev_reason = {"generated": "pass2", "pass2": "pass2", "audit": "audit", "final": "audit", "reroll": "reroll"}.get(reason, "pass2")
+
+    cur = conn.cursor()
+    cur.execute("SELECT name, source FROM storyboard_helpers WHERE storyboard_id = ?", (storyboard_id,))
+    saved_helpers = {r["name"]: r["source"] for r in cur.fetchall()}
+    with conn:
+        for seq, (name, src) in enumerate(store.get("helpers", {}).items()):
+            if saved_helpers.get(name) != src:
+                conn.execute(
+                    """
+                    INSERT INTO storyboard_helpers (storyboard_id, name, seq, source)
+                    VALUES (?, ?, ?, ?)
+                    ON CONFLICT(storyboard_id, name) DO UPDATE SET seq = excluded.seq, source = excluded.source
+                    """,
+                    (storyboard_id, name, seq, src),
+                )
+
+    cur.execute("SELECT id, beat_no, source_code FROM beats WHERE storyboard_id = ?", (storyboard_id,))
+    rows = {int(r["beat_no"]): (int(r["id"]), r["source_code"]) for r in cur.fetchall()}
+    for beat_no, (beat_id, saved_src) in rows.items():
+        src = store.get("beats", {}).get(f"beat_{beat_no:02d}")
+        if src and src != saved_src:
+            update_beat_code(conn, beat_id, src, "ok", reason=rev_reason)
+            changed += 1
+    return changed
+
+
+def count_saved_beats(conn: sqlite3.Connection, storyboard_id: int) -> Tuple[int, int]:
+    """(beats that have code, total beats) for a storyboard."""
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT COUNT(*) AS total, SUM(CASE WHEN source_code IS NOT NULL AND source_code != '' THEN 1 ELSE 0 END) AS done "
+        "FROM beats WHERE storyboard_id = ?",
+        (storyboard_id,),
+    )
+    r = cur.fetchone()
+    return int(r["done"] or 0), int(r["total"] or 0)
+
+
+def missing_beat_indices(plan: dict, namespace: Dict[str, Any]) -> list:
+    """Indices (0-based, into plan['scenes']) whose beat function is not saved AND callable."""
+    beats = (plan.get("scene_sources") or {}).get("beats", {})
+    out = []
+    for i, sc in enumerate(plan.get("scenes", [])):
+        name = f"beat_{int(sc.get('beat_id', i + 1)):02d}"
+        if not beats.get(name) or not callable(namespace.get(name)):
+            out.append(i)
+    return out

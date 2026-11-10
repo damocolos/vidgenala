@@ -3,7 +3,7 @@ import re
 import json
 import threading
 from pathlib import Path
-from typing import Tuple, Optional, List, Dict, Any, Union
+from typing import Callable, Tuple, Optional, List, Dict, Any, Union
 import numpy as np
 from PIL import Image
 
@@ -100,6 +100,7 @@ def audit_and_fix_beats(
     progress_fn=None,
     cancel_event: Optional[threading.Event] = None,
     scene_module_path: Optional[Union[str, Path]] = None,
+    on_code_update: Optional[Callable[[dict, str], None]] = None,
 ):
     scenes = plan.get("scenes", [])
     log_fn(f"[SELF-CORRECTION LOOP v8.1] Auditing {len(scenes)} beats for complexity, motion & anti-repetition...")
@@ -167,8 +168,11 @@ def audit_and_fix_beats(
                 except Exception as err:
                     log_fn(f"  [BEAT #{idx+1:02d} AUTO-FIX ERROR] {err}")
                     new_src = None
-                if new_src:
-                    register_beat_source(plan, namespace, f"beat_{idx+1:02d}", new_src, log_fn)
+                if new_src and register_beat_source(plan, namespace, f"beat_{idx+1:02d}", new_src, log_fn) and on_code_update:
+                    try:
+                        on_code_update(plan, "audit")   # a paid-for fix is saved right away
+                    except Exception as err:
+                        log_fn(f"  [DB WARN] Could not save beat #{idx+1:02d}: {err}")
             else:
                 prev_stage_crop = cur_crop
                 log_fn(f"  [BEAT #{idx+1:02d} PROCEED] Max retries reached ({reason_str}).")
