@@ -12,8 +12,8 @@
     </div>
     <h1>{{ topic.title }}</h1>
   </div>
-  <div style="display: flex; gap: 0.5rem;">
-    <button class="btn btn-secondary btn-sm" onclick="saveTopicDetails()">Save Topic</button>
+  <div class="head-actions">
+    <button class="btn btn-secondary" onclick="saveTopicDetails()">Save topic</button>
   </div>
 </div>
 
@@ -42,17 +42,17 @@
     <!-- SECTION 1: AI Provider Config (F-01..F-08) -->
     <div class="card" id="provider-card">
       <div class="card-header">
-        <div class="card-title">1. AI Engine & Models</div>
+        <div class="card-title"><span class="step-no">1</span>AI engine and models</div>
         <span id="active-provider-badge" class="badge badge-green">{{ active_provider.key|upper }}</span>
       </div>
       <div class="form-group">
-        <label for="provider-select">AI Provider</label>
+        <label for="provider-select">AI provider</label>
         <select id="provider-select" onchange="switchProvider(this.value)">
           {% for p in providers %}
           <option value="{{ p.key }}" {% if p.is_active %}selected{% endif %}>{{ p.label }}</option>
           {% endfor %}
         </select>
-        <small id="provider-hint" style="display: block; margin-top: 0.35rem; color: var(--text-dim); font-size: 0.8rem;">
+        <small id="provider-hint" class="field-hint">
           {{ active_provider.hint|default('OpenAI compatible endpoint') }}
         </small>
       </div>
@@ -63,14 +63,14 @@
           <input type="text" id="provider-base-url" value="{{ active_provider.base_url }}">
         </div>
         <div class="form-group">
-          <label for="provider-api-key">API Key</label>
+          <label for="provider-api-key">API key</label>
           <input type="password" id="provider-api-key" placeholder="{% if active_provider.has_key %}••••••••{% else %}Enter API key{% endif %}">
         </div>
       </div>
 
       <div class="form-row">
         <div class="form-group">
-          <label for="provider-coder-model">Coder Model (Stage 5)</label>
+          <label for="provider-coder-model">Coder model (vector artist)</label>
           <input type="text" id="provider-coder-model" list="coder-models-list" value="{{ active_provider.coder_model }}">
           <datalist id="coder-models-list">
             {% for m in models %}
@@ -79,7 +79,7 @@
           </datalist>
         </div>
         <div class="form-group">
-          <label for="provider-script-model">Script Model (Stage 1)</label>
+          <label for="provider-script-model">Script model</label>
           <input type="text" id="provider-script-model" list="script-models-list" value="{{ active_provider.script_model }}">
           <datalist id="script-models-list">
             {% for m in models %}
@@ -89,25 +89,25 @@
         </div>
       </div>
 
-      <div style="display: flex; gap: 0.5rem; justify-content: flex-end; margin-top: 0.5rem;">
-        <button class="btn btn-secondary btn-sm" onclick="saveProviderConfig()">Save Config</button>
-        <button class="btn btn-secondary btn-sm" onclick="testAIConnection()">Test Vector Model</button>
-        <button id="btn-fetch-or" class="btn btn-secondary btn-sm" onclick="fetchORModels()">Fetch Models</button>
+      <div class="actions">
+        <button id="btn-fetch-or" class="btn btn-secondary btn-sm" onclick="fetchORModels()">Fetch models</button>
+        <button class="btn btn-secondary btn-sm" onclick="testAIConnection()">Test coder model</button>
+        <button class="btn btn-primary btn-sm" onclick="saveProviderConfig()">Save config</button>
       </div>
     </div>
 
     <!-- SECTION 2: Topic & Script (F-10..F-18) -->
     <div class="card" id="script-card">
       <div class="card-header">
-        <div class="card-title">2. Topic & Structured Script</div>
-        <div style="display: flex; gap: 0.5rem;">
-          <button class="btn btn-secondary btn-sm" onclick="copyCleanText({{ current_script.id if current_script else 'null' }})">Copy Clean Text</button>
-          <button id="btn-gen-script" class="btn btn-primary btn-sm" onclick="triggerGenerateScript()">Generate Script (AI)</button>
+        <div class="card-title"><span class="step-no">2</span>Topic and script</div>
+        <div class="actions-group">
+          <button class="btn btn-secondary btn-sm" onclick="copyCleanText({{ current_script.id if current_script else 'null' }})">Copy clean text</button>
+          <button id="btn-gen-script" class="btn btn-primary btn-sm" onclick="triggerGenerateScript()">Generate script with AI</button>
         </div>
       </div>
 
       <div class="form-group">
-        <label for="topic-title-input">Topic Title</label>
+        <label for="topic-title-input">Topic title</label>
         <input type="text" id="topic-title-input" value="{{ topic.title }}">
       </div>
 
@@ -120,47 +120,47 @@
           </select>
         </div>
         <div class="form-group">
-          <label for="max-duration-input">Target Max Duration (seconds)</label>
+          <label for="max-duration-input">Maximum duration (seconds)</label>
           <input type="number" id="max-duration-input" value="{{ topic.max_duration }}" min="15" max="900" step="5" onchange="updateDurationHint(); updateScriptEstimates();">
         </div>
       </div>
 
-      <div style="background-color: var(--bg-subpanel); padding: 0.5rem 0.75rem; border-radius: var(--radius-sm); margin-bottom: 1rem; border: 1px solid var(--border-color);">
-        <small id="duration-hint-text" style="color: var(--text-muted); font-size: 0.82rem;">
-          Budget: {{ duration_hint.word_budget_lo }}–{{ duration_hint.word_budget_hi }} words | {{ duration_hint.recommended_sections }} sections | ~{{ duration_hint.beats_lo }}–{{ duration_hint.beats_hi }} beats ({{ duration_hint.mode_label }})
-        </small>
+      <div class="note-box">
+        <span id="duration-hint-text">
+          Budget: {{ duration_hint.word_budget_lo }}–{{ duration_hint.word_budget_hi }} words, {{ duration_hint.recommended_sections }} sections, about {{ duration_hint.beats_lo }}–{{ duration_hint.beats_hi }} beats ({{ duration_hint.mode_label }})
+        </span>
       </div>
 
       <div class="form-group">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.35rem;">
-          <label for="script-editor" style="margin-bottom: 0;">Script Editor ([Hook], [Inti 1..N], [Penutup])</label>
-          <div style="display: flex; gap: 0.5rem; font-size: 0.8rem; color: var(--text-muted); align-items: center;">
-            <span id="script-word-count">{{ script_stats.word_count }} words</span> &bull;
-            <span id="script-est-vo">~{{ script_stats.est_voice_seconds }}s voice</span> &bull;
-            <span id="script-est-vid">~{{ script_stats.est_video_seconds }}s video</span> &bull;
-            <span id="script-budget-range">Budget: {{ script_stats.word_budget_lo }}-{{ script_stats.word_budget_hi }} w</span>
-            <span id="script-over-cap" class="badge badge-orange" style="display: {% if script_stats.over_cap %}inline-block{% else %}none{% endif %};">OVER CAP</span>
+        <div class="field-label-row">
+          <label for="script-editor">Script (use [Hook], [Inti 1..N], [Penutup])</label>
+          <div class="stats-inline">
+            <span id="script-word-count">{{ script_stats.word_count }} words</span>
+            <span id="script-est-vo">~{{ script_stats.est_voice_seconds }}s voice</span>
+            <span id="script-est-vid">~{{ script_stats.est_video_seconds }}s video</span>
+            <span id="script-budget-range">Budget: {{ script_stats.word_budget_lo }}-{{ script_stats.word_budget_hi }} words</span>
+            <span id="script-over-cap" class="badge badge-orange" style="display: {% if script_stats.over_cap %}inline-block{% else %}none{% endif %};">Over the limit</span>
           </div>
         </div>
         <textarea id="script-editor" oninput="updateScriptEstimates()">{{ current_script.raw_text if current_script else default_sample_script }}</textarea>
       </div>
 
-      <div style="display: flex; justify-content: flex-end; gap: 0.5rem;">
-        <button class="btn btn-secondary btn-sm" onclick="saveManualScript()">Save Script Draft</button>
+      <div class="actions">
+        <button class="btn btn-secondary btn-sm" onclick="saveManualScript()">Save script</button>
       </div>
     </div>
     <!-- SECTION 3: Voiceover & Audio (F-20..F-41) -->
     <div class="card" id="audio-card">
       <div class="card-header">
-        <div class="card-title">3. Voiceover & Audio Configuration</div>
+        <div class="card-title"><span class="step-no">3</span>Voiceover and render settings</div>
         <span id="vo-status-badge" class="badge {% if current_voiceover %}badge-green{% else %}badge-orange{% endif %}">
-          {% if current_voiceover and current_voiceover.duration_sec %}VO Ready ({{ "%.1f"|format(current_voiceover.duration_sec) }}s){% elif current_voiceover %}VO Ready{% else %}No VO{% endif %}
+          {% if current_voiceover and current_voiceover.duration_sec %}Voiceover ready ({{ "%.1f"|format(current_voiceover.duration_sec) }}s){% elif current_voiceover %}Voiceover ready{% else %}No voiceover yet{% endif %}
         </span>
       </div>
 
       <div class="form-row">
         <div class="form-group">
-          <label for="tts-provider-select">TTS Provider</label>
+          <label for="tts-provider-select">Voice provider</label>
           <select id="tts-provider-select" onchange="toggleTTSFields(this.value)">
             <option value="ElevenLabs API v1" {% if tts_settings.provider == 'ElevenLabs API v1' %}selected{% endif %}>ElevenLabs API v1</option>
             <option value="Edge-TTS (gratis)" {% if tts_settings.provider == 'Edge-TTS (gratis)' %}selected{% endif %}>Edge-TTS (gratis)</option>
@@ -180,13 +180,15 @@
       <div id="elevenlabs-options" style="display: {% if tts_settings.provider == 'ElevenLabs API v1' %}block{% else %}none{% endif %};">
         <div class="form-row">
           <div class="form-group">
-            <label for="tts-model-select">ElevenLabs Model</label>
+            <label for="tts-model-select">ElevenLabs model</label>
             <select id="tts-model-select">
               <option value="eleven_multilingual_v2" {% if tts_settings.model_id == 'eleven_multilingual_v2' %}selected{% endif %}>eleven_multilingual_v2</option>
               <option value="eleven_flash_v2_5" {% if tts_settings.model_id == 'eleven_flash_v2_5' %}selected{% endif %}>eleven_flash_v2_5</option>
               <option value="eleven_turbo_v2_5" {% if tts_settings.model_id == 'eleven_turbo_v2_5' %}selected{% endif %}>eleven_turbo_v2_5</option>
             </select>
           </div>
+        </div>
+        <div class="form-row three">
           <div class="form-group">
             <label for="tts-stability">Stability: <span id="val-stability">{{ tts_settings.stability }}</span></label>
             <input type="range" id="tts-stability" min="0" max="1" step="0.05" value="{{ tts_settings.stability }}" oninput="document.getElementById('val-stability').innerText=this.value">
@@ -201,7 +203,7 @@
           </div>
         </div>
 
-        <div style="display: flex; gap: 1.5rem; margin-bottom: 1rem;">
+        <div class="check-row">
           <label class="form-check">
             <input type="checkbox" id="tts-speaker-boost" {% if tts_settings.speaker_boost %}checked{% endif %}>
             <span>Speaker Boost</span>
@@ -213,26 +215,26 @@
         </div>
       </div>
 
-      <div style="display: flex; gap: 0.5rem; align-items: center; justify-content: space-between; margin-bottom: 1rem;">
-        <button id="btn-fetch-el" class="btn btn-secondary btn-sm" onclick="fetchELVoices()">Fetch My Voices</button>
-        <div style="display: flex; gap: 0.5rem;">
+      <div class="actions split" style="margin-bottom: 1rem;">
+        <button id="btn-fetch-el" class="btn btn-secondary btn-sm" onclick="fetchELVoices()">Fetch my voices</button>
+        <div class="actions-group">
           <label class="btn btn-secondary btn-sm" style="margin-bottom: 0;">
-            Upload Audio
+            Upload audio
             <input type="file" id="vo-upload-input" accept=".mp3,.wav,.m4a,.ogg" style="display: none;" onchange="handleVOUpload(event)">
           </label>
-          <button id="btn-gen-tts" class="btn btn-primary btn-sm" onclick="triggerGenerateTTS()">Generate Audio Now</button>
+          <button id="btn-gen-tts" class="btn btn-primary btn-sm" onclick="triggerGenerateTTS()">Generate voiceover</button>
         </div>
       </div>
 
       <!-- Audio Player -->
-      <div id="vo-player-container" style="display: {% if current_voiceover %}block{% else %}none{% endif %}; background: var(--bg-subpanel); padding: 0.75rem; border-radius: var(--radius-sm); border: 1px solid var(--border-color); margin-bottom: 1rem;">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
-          <span style="font-size: 0.85rem; font-weight: 600;">Voiceover Preview</span>
-          <span id="vo-dur-label" style="font-size: 0.8rem; color: var(--text-muted);">
+      <div id="vo-player-container" class="inset" style="display: {% if current_voiceover %}block{% else %}none{% endif %};">
+        <div class="field-label-row">
+          <label style="margin: 0;">Voiceover preview</label>
+          <span id="vo-dur-label" class="card-note">
             {% if current_voiceover and current_voiceover.duration_sec %}{{ "%.1f"|format(current_voiceover.duration_sec) }}s (Target Video: {{ current_voiceover.total_dur_locked or '-' }}s){% endif %}
           </span>
         </div>
-        <audio id="vo-audio-player" controls style="width: 100%;">
+        <audio id="vo-audio-player" controls>
           {% if current_voiceover %}
           <source src="/api/voiceovers/{{ current_voiceover.id }}/audio" type="audio/mpeg">
           {% endif %}
@@ -240,11 +242,11 @@
       </div>
 
       <!-- Render Parameters -->
-      <div class="form-row">
+      <div class="section-gap form-row">
         <div class="form-group">
-          <label for="reference-select">Reference Video / Style</label>
+          <label for="reference-select">Reference video (style)</label>
           <select id="reference-select">
-            <option value="">None (Default Nalarka Flat-Vector Palette)</option>
+            <option value="">None (default flat-vector palette)</option>
             {% for r in ref_items %}
             <option value="{{ r.file_path }}" {% if selected_ref == r.file_path %}selected{% endif %}>{{ r.filename }} ({{ r.width }}x{{ r.height }})</option>
             {% endfor %}
@@ -262,105 +264,103 @@
 
       <div class="form-row">
         <div class="form-group">
-          <label for="whisper-size-select">Whisper Model Size</label>
+          <label for="whisper-size-select">Transcription model size (Whisper)</label>
           <select id="whisper-size-select">
-            <option value="tiny">tiny (Fastest)</option>
-            <option value="base" selected>base (Balanced)</option>
-            <option value="small">small (High accuracy)</option>
+            <option value="tiny">tiny (fastest)</option>
+            <option value="base" selected>base (balanced)</option>
+            <option value="small">small (most accurate)</option>
           </select>
         </div>
         <div class="form-group">
-          <label for="render-workers">Render Workers (CPU cores)</label>
+          <label for="render-workers">Render workers (CPU cores)</label>
           <input type="number" id="render-workers" value="{{ default_workers|default(4) }}" min="1" max="16">
         </div>
       </div>
 
-      <div class="form-row" style="align-items: center; margin-bottom: 0.5rem;">
-        <div class="form-group" style="flex: 2;">
-          <label for="output-name">Output Video Filename</label>
+      <div class="form-row two-one">
+        <div class="form-group">
+          <label for="output-name">Output file name</label>
           <input type="text" id="output-name" value="video_topic_{{ topic.id }}.mp4">
         </div>
-        <div class="form-group" style="flex: 1; padding-top: 1.25rem;">
+        <div class="form-group">
           <label class="form-check">
             <input type="checkbox" id="synth-bgm-check" checked>
-            <span>Auto-Synth BGM</span>
+            <span>Synthesize background music</span>
           </label>
         </div>
       </div>
     </div>
 
-    <!-- SECTION 4: Render & Beat Inspector (F-42..F-46) -->
+    <!-- SECTION 4: Beat inspector (rendering itself is started from the run panel) -->
     <div class="card" id="render-card">
       <div class="card-header">
-        <div class="card-title">4. Render Engine & Beat Inspector</div>
-        <div style="display: flex; gap: 0.5rem;">
-          <button id="btn-verify-video" class="btn btn-secondary btn-sm" onclick="triggerVerifyOnly()" {% if not latest_render %}disabled{% endif %}>Verify MP4</button>
-          <button id="btn-render-video" class="btn btn-primary btn-sm" onclick="triggerFullRender()">Generate & Render MP4</button>
-        </div>
+        <div class="card-title"><span class="step-no">4</span>Beat inspector</div>
+        <span class="card-note">Fix one beat without rendering the whole video again.</span>
       </div>
 
-      <!-- Beat Inspector -->
-      <div style="margin-bottom: 1rem;">
-        <label for="beat-select">Beat Inspector (Scene Elements)</label>
+      <div class="form-group">
+        <label for="beat-select">Beat</label>
         <select id="beat-select" onchange="onBeatSelected(this.value)">
           {% if beats %}
             {% for b in beats %}
             <option value="{{ b.id }}">Beat #{{ "%02d"|format(b.beat_no) }} [{{ "%.1f"|format(b.start_sec or 0.0) }}s - {{ "%.1f"|format(b.end_sec or 0.0) }}s] ({{ b.bg_color }}): {{ b.summary|default(b.visual_blueprint[:50]) }}</option>
             {% endfor %}
           {% else %}
-            <option value="">No beats available yet. Run render pipeline first.</option>
+            <option value="">No beats yet. Render the video once to create them.</option>
           {% endif %}
         </select>
       </div>
 
       <div class="form-group">
-        <label for="beat-reroll-note">Custom Note for Beat Regenerator (Optional)</label>
-        <textarea id="beat-reroll-note" style="min-height: 70px;" placeholder="e.g. buat gelombang suara lebih tebal dan berwarna cyan cerah..."></textarea>
+        <label for="beat-reroll-note">Note for the regenerated beat (optional)</label>
+        <textarea id="beat-reroll-note" style="min-height: 70px;" placeholder="e.g. thicker sound waves in bright cyan"></textarea>
       </div>
 
-      <div style="display: flex; justify-content: flex-end; gap: 0.5rem;">
-        <button id="btn-preview-beat" class="btn btn-secondary btn-sm" onclick="triggerPreviewBeat()" {% if not beats %}disabled{% endif %}>Preview Selected Beat (PNG)</button>
-        <button id="btn-reroll-beat" class="btn btn-secondary btn-sm" onclick="triggerRerollBeat()" {% if not beats %}disabled{% endif %}>Regenerate Selected Beat</button>
+      <div class="actions">
+        <button id="btn-preview-beat" class="btn btn-secondary btn-sm" onclick="triggerPreviewBeat()" {% if not beats %}disabled{% endif %}>Preview beat (PNG)</button>
+        <button id="btn-reroll-beat" class="btn btn-secondary btn-sm" onclick="triggerRerollBeat()" {% if not beats %}disabled{% endif %}>Regenerate beat</button>
       </div>
     </div>
 
   </div>
 
-  <aside class="studio-aside" aria-label="Output">
-    <div class="card" id="videos-card">
-      <div class="card-header">
-        <div class="card-title">Videos</div>
-        <a class="btn btn-secondary btn-sm" href="/history">All videos</a>
+  <!-- Run panel: start a render, watch it, see the result. Exactly one area in it scrolls. -->
+  <aside class="run-panel" id="console-card" aria-label="Render and output">
+    <div class="run-head">
+      <div class="run-title"><span>Render</span><span id="job-status" class="badge">Idle</span></div>
+      <div class="run-actions">
+        <button id="btn-verify-video" class="btn btn-secondary" onclick="triggerVerifyOnly()" {% if not latest_render %}disabled{% endif %}>Verify MP4</button>
+        <button id="btn-render-video" class="btn btn-primary" onclick="triggerFullRender()">Render video</button>
       </div>
-      <div id="video-list" class="video-list"><div class="empty-state"><b>Loading…</b></div></div>
+    </div>
+    <progress id="job-progress" value="0" max="100" aria-label="Render progress"></progress>
+    <div class="tabs" role="tablist" aria-label="Run output">
+      <button type="button" class="tab on" id="runtab-log" role="tab" aria-selected="true" onclick="showRunTab('log')">Log</button>
+      <button type="button" class="tab" id="runtab-videos" role="tab" aria-selected="false" onclick="showRunTab('videos')">Videos</button>
+      <button type="button" class="tab" id="runtab-ai" role="tab" aria-selected="false" onclick="showRunTab('ai')">AI requests</button>
     </div>
 
-    <div class="card" id="ai-card">
-      <div class="card-header">
-        <div class="card-title">AI requests</div>
-        <button class="btn btn-secondary btn-sm" onclick="toggleActivity(true, window.CURRENT_JOB_ID)">Details</button>
-      </div>
-      <div id="ai-usage"></div>
-    </div>
-
-    <!-- Progress & Live Console (F-50..F-54) -->
-    <div class="card" id="console-card">
-      <div class="card-header">
-        <div class="card-title">
-          <span>Engine Progress</span>
-          <span id="job-status" class="badge">Idle</span>
-        </div>
+    <div class="run-pane log-pane" id="runpane-log" role="tabpanel">
+      <div class="run-tools">
+        <span class="hint">Saved per run, so it is still here after a reload.</span>
         <div class="monitor-tools">
-          <button id="btn-resume-job" class="btn btn-primary btn-sm" style="display:none" onclick="resumeCurrentJob()" title="Re-run the failed job. AI answers already received are reused, so you are not charged again.">Resume</button>
-          <button class="btn btn-secondary btn-sm" onclick="document.getElementById('live-console').textContent=''">Clear Log</button>
+          <button id="btn-resume-job" class="btn btn-primary btn-sm" style="display:none" onclick="resumeCurrentJob()" title="Run the failed job again. Saved AI answers and beats are reused, so you are not charged twice.">Resume</button>
+          <button class="btn btn-secondary btn-sm" onclick="document.getElementById('live-console').textContent=''">Clear</button>
         </div>
-      </div>
-      <div style="margin-bottom: 0.75rem;">
-        <progress id="job-progress" value="0" max="100"></progress>
       </div>
       <pre id="live-console" class="console-box">Nalarka Studio is ready.
 Topic #{{ topic.id }}: {{ topic.title }}
-Pick an action on the left. The log of every run is saved, so it is still here after a reload.</pre>
+Press "Render video" when the script and voiceover are ready.</pre>
+    </div>
+
+    <div class="run-pane" id="runpane-videos" role="tabpanel" hidden>
+      <div id="video-list" class="video-list"><div class="empty-state"><b>Loading…</b></div></div>
+      <div class="actions" style="margin-top: 1rem;"><a class="btn btn-secondary btn-sm" href="/history">All videos</a></div>
+    </div>
+
+    <div class="run-pane" id="runpane-ai" role="tabpanel" hidden>
+      <div id="ai-usage"></div>
+      <div class="actions" style="margin-top: 1rem;"><button class="btn btn-secondary btn-sm" onclick="toggleActivity(true, window.CURRENT_JOB_ID)">Open full request list</button></div>
     </div>
   </aside>
 </div>

@@ -64,29 +64,29 @@ def test_topic_studio_view_parity(client):
     html = res.text
 
     # Verify F-01 to F-08 (Provider section)
-    assert "AI Engine & Models" in html
+    assert "AI engine and models" in html
     assert "provider-select" in html
     assert "provider-base-url" in html
     assert "provider-api-key" in html
     assert "provider-coder-model" in html
     assert "provider-script-model" in html
-    assert "Save Config" in html
-    assert "Test Vector Model" in html
-    assert "Fetch Models" in html
+    assert "Save config" in html
+    assert "Test coder model" in html
+    assert "Fetch models" in html
 
     # Verify F-10 to F-18 (Topic & Script section)
     assert "Misteri Laut Dalam" in html
     assert "topic-title-input" in html
     assert "topic-lang-select" in html
     assert "max-duration-input" in html
-    assert "Generate Script (AI)" in html
+    assert "Generate script with AI" in html
     assert "script-editor" in html
-    assert "Copy Clean Text" in html
+    assert "Copy clean text" in html
     assert "script-word-count" in html
-    assert "OVER CAP" in html
+    assert "Over the limit" in html
 
     # Verify F-20 to F-41 (Voiceover & Render params)
-    assert "Voiceover & Audio Configuration" in html
+    assert "Voiceover and render settings" in html
     assert "tts-provider-select" in html
     assert "ElevenLabs API v1" in html
     assert "Edge-TTS" in html
@@ -96,8 +96,8 @@ def test_topic_studio_view_parity(client):
     assert "tts-style" in html
     assert "Speaker Boost" in html
     assert 'Add &lt;break time="0.4s"/&gt;' in html
-    assert "Fetch My Voices" in html
-    assert "Generate Audio Now" in html
+    assert "Fetch my voices" in html
+    assert "Generate voiceover" in html
     assert "reference-select" in html
     assert "orientation-select" in html
     assert "whisper-size-select" in html
@@ -106,16 +106,16 @@ def test_topic_studio_view_parity(client):
     assert "output-name" in html
 
     # Verify F-42 to F-46 (Render & Beat Inspector)
-    assert "Render Engine & Beat Inspector" in html
-    assert "Generate & Render MP4" in html
+    assert "Beat inspector" in html
+    assert "Render video" in html
     assert "Verify MP4" in html
     assert "beat-select" in html
-    assert "Preview Selected Beat" in html
-    assert "Regenerate Selected Beat" in html
+    assert "Preview beat (PNG)" in html
+    assert "Regenerate beat" in html
     assert "beat-reroll-note" in html
 
     # Verify F-50 to F-54 (Console & Progress)
-    assert "Engine Progress" in html
+    assert "runpane-log" in html and "runpane-videos" in html and "runpane-ai" in html
     assert "job-progress" in html
     assert "live-console" in html
 
@@ -144,9 +144,9 @@ def test_settings_view(client):
     res = client.get("/settings")
     assert res.status_code == 200
     html = res.text
-    assert "Studio Settings & Configuration" in html
-    assert "Text-to-Speech Defaults" in html
-    assert "Config Import & Export" in html
+    assert "AI stop point" in html
+    assert "Voice defaults" in html
+    assert "Import and export config" in html
     assert "Export config_nalarka.json" in html
     assert "import-config-file" in html
 

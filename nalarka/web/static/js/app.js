@@ -108,6 +108,7 @@ function connectJobEvents(jobId, options = {}) {
     statusEl.className = "badge badge-blue";
   }
   window.CURRENT_JOB_ID = jobId;
+  if (consoleId === "live-console") showRunTab("log");   // a new run: show its log first
 
   const evtSource = new EventSource(`/api/jobs/${jobId}/events`);
   let finished = false;
@@ -397,7 +398,7 @@ async function loadTopicVideos(topicId, containerId = "video-list") {
     if (!res.ok) throw new Error("Could not load videos");
     const rows = await res.json();
     if (!rows.length) {
-      box.innerHTML = `<div class="empty-state"><b>No video yet</b>Generate &amp; Render MP4 and the finished video appears here, saved in the database.</div>`;
+      box.innerHTML = `<div class="empty-state"><b>No video yet</b>Press Render video and the finished video appears here, saved in the database.</div>`;
       return;
     }
     box.innerHTML = rows.slice(0, 6).map((r) => {
@@ -494,6 +495,20 @@ function toggleActivity(force, jobId) {
     refreshJobList(true);
   } else { ACTIVITY.loadedFor = null; if (ACTIVITY.sse) { ACTIVITY.sse.close(); ACTIVITY.sse = null; } }
 }
+
+// Tabs of the studio's run panel (Log / Videos / AI requests). Only the visible pane scrolls.
+function showRunTab(tab) {
+  if (!document.getElementById("runpane-log")) return;
+  ["log", "videos", "ai"].forEach((t) => {
+    const on = t === tab;
+    const pane = document.getElementById("runpane-" + t), btn = document.getElementById("runtab-" + t);
+    if (pane) pane.hidden = !on;
+    if (btn) { btn.classList.toggle("on", on); btn.setAttribute("aria-selected", String(on)); }
+  });
+}
+window.addEventListener("nalarka:job-finished", (e) => {
+  if (e.detail && e.detail.status === "succeeded" && window.CURRENT_JOB_KIND === "full_render") showRunTab("videos");
+});
 
 function showDrawerTab(tab) {
   ACTIVITY.tab = tab;

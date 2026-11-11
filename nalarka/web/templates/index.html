@@ -19,7 +19,7 @@
     <a href="/history" class="btn btn-secondary btn-sm">All videos ({{ recent_renders|length }})</a>
   </div>
   {% if recent_renders %}
-  <div class="video-grid">
+  <div class="video-grid compact">
     {% for r in recent_renders[:4] %}{{ video_card(r) }}{% endfor %}
   </div>
   {% else %}
@@ -41,7 +41,7 @@
           <th style="width: 110px;">Language</th>
           <th style="width: 100px;">Target</th>
           <th style="width: 150px;">Created</th>
-          <th style="width: 170px; text-align: right;"><span class="sr-only">Actions</span></th>
+          <th style="width: 190px;"><span class="sr-only">Actions</span></th>
         </tr>
       </thead>
       <tbody>
@@ -51,7 +51,7 @@
           <td>{{ t.language }}</td>
           <td>{{ t.max_duration }}s</td>
           <td class="mono-dim">{{ t.created_at[:16]|replace('T', ' ') }}</td>
-          <td style="text-align: right;">
+          <td class="cell-actions">
             <a href="/topics/{{ t.id }}" class="btn btn-primary btn-sm">Open studio</a>
             <button class="btn btn-secondary btn-sm" onclick="deleteTopic({{ t.id }})">Delete</button>
           </td>

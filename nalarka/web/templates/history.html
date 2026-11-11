@@ -16,7 +16,7 @@
     <div class="card-title">All Video Renders ({{ renders|length }})</div>
   </div>
   {% if renders %}
-  <div class="video-grid">
+  <div class="video-grid compact">
     {% for r in renders %}{{ video_card(r) }}{% endfor %}
   </div>
   {% else %}
