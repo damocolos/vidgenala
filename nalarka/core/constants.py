@@ -23,15 +23,28 @@ TTS_OVERSHOOT_TOLERANCE = 1.12 # tolerance for word-to-audio duration ratio
 # --- AI providers ---------------------------------------------------------
 PROVIDER_CUSTOM = "custom"
 PROVIDER_OPENROUTER = "openrouter"
+PROVIDER_DEEPSEEK = "deepseek"
 PROVIDER_LABELS = {
     PROVIDER_CUSTOM: "Custom OpenAI-compatible (oao.ai.id)",
     PROVIDER_OPENROUTER: "OpenRouter",
+    PROVIDER_DEEPSEEK: "DeepSeek (direct)",
 }
 PROVIDER_DEFAULT_BASE_URL = {
     PROVIDER_CUSTOM: "https://oao.ai.id/v1",
     PROVIDER_OPENROUTER: "https://openrouter.ai/api/v1",
+    PROVIDER_DEEPSEEK: "https://api.deepseek.com",
 }
 OPENROUTER_MODELS_URL = "https://openrouter.ai/api/v1/models"
+
+# DeepSeek's own API (OpenAI-compatible, no proxy in between). Model ids change between releases, so these are only
+# starting points: "Fetch models" in the AI engine card reads the live list from GET /models.
+DEEPSEEK_VISUAL_CODER_MODELS = ["deepseek-v4-pro", "deepseek-flash"]
+DEEPSEEK_SCRIPT_MODELS = ["deepseek-flash", "deepseek-v4-pro"]
+PROVIDER_HINTS = {
+    PROVIDER_CUSTOM: "Any OpenAI-compatible endpoint (LM Studio, a local server, oao.ai.id).",
+    PROVIDER_OPENROUTER: "One key for many models. Use Fetch models to list them.",
+    PROVIDER_DEEPSEEK: "Direct to api.deepseek.com with your DeepSeek key and balance. Use Fetch models to see the ids your account can call.",
+}
 
 OPENROUTER_VISUAL_CODER_MODELS = [
     "anthropic/claude-opus-5.5",

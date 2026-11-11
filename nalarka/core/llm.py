@@ -5,6 +5,8 @@ import json
 import hashlib
 import threading
 import logging
+import re
+import urllib.error
 import urllib.request
 from .llm_guard import ProviderGuard, ProviderCircuitOpen, get_llm_guard, set_llm_guard  # noqa: F401
 from typing import Optional, List, Dict, Tuple, Any
@@ -18,15 +20,27 @@ def is_openrouter(base_url: str) -> bool:
     return "openrouter.ai" in (base_url or "").lower()
 
 
+def is_deepseek(base_url: str) -> bool:
+    return "deepseek.com" in (base_url or "").lower()
+
+
+def _env_key_name(base_url: str) -> str:
+    if is_openrouter(base_url):
+        return "OPENROUTER_API_KEY"
+    if is_deepseek(base_url):
+        return "DEEPSEEK_API_KEY"
+    return "NALARKA_API_KEY"
+
+
 def make_client(base_url: str, api_key: str, timeout: float = 300.0, max_retries: int = 1) -> OpenAI:
     """Builds an OpenAI-SDK client. OpenRouter gets its optional attribution headers automatically."""
     key = (api_key or "").strip()
     if not key:
-        key = os.environ.get("OPENROUTER_API_KEY" if is_openrouter(base_url) else "NALARKA_API_KEY", "").strip()
+        key = os.environ.get(_env_key_name(base_url), "").strip()
     if not key:
         raise ValueError(
             "API key is empty. Enter the key for the selected provider in Section 1 "
-            f"(or set the {'OPENROUTER_API_KEY' if is_openrouter(base_url) else 'NALARKA_API_KEY'} environment variable)."
+            f"(or set the {_env_key_name(base_url)} environment variable)."
         )
     kwargs: Dict[str, Any] = {}
     if is_openrouter(base_url):
@@ -65,10 +79,31 @@ def fetch_openrouter_models(api_key: str, log_fn) -> List[Dict[str, Any]]:
     return models
 
 
+def fetch_provider_models(base_url: str, api_key: str, log_fn) -> List[Dict[str, Any]]:
+    """Lists the models an OpenAI-compatible provider serves (GET <base_url>/models), e.g. DeepSeek.
+    The key is sent only to the provider's own base URL."""
+    key = (api_key or "").strip() or os.environ.get(_env_key_name(base_url), "").strip()
+    if not key:
+        raise ValueError("API key is empty. Save the provider's key first, then fetch models.")
+    url = base_url.strip().rstrip("/") + "/models"
+    req = urllib.request.Request(url, headers={"Accept": "application/json", "Authorization": f"Bearer {key}"}, method="GET")
+    log_fn(f"[MODELS] GET {url}")
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as err:
+        class _E(Exception):
+            status_code = err.code
+        raise RuntimeError(friendly_api_error(_E(f"HTTP {err.code} from {url}"), base_url)) from err
+    models = [{"id": m["id"], "name": m.get("name", m["id"])} for m in data.get("data", []) if isinstance(m, dict) and m.get("id")]
+    models.sort(key=lambda x: x["id"])
+    return models
+
+
 def friendly_api_error(err: Exception, base_url: str) -> str:
     """One-line, actionable explanation for the HTTP errors people actually hit (OpenRouter included)."""
     code = getattr(err, "status_code", None)
-    host = "OpenRouter" if is_openrouter(base_url) else "the API endpoint"
+    host = "OpenRouter" if is_openrouter(base_url) else "DeepSeek" if is_deepseek(base_url) else "the API endpoint"
     hints = {
         400: "the request was rejected (bad parameter or model id). Check the model name.",
         401: f"{host} rejected the API key. Re-check it in Section 1.",
@@ -81,6 +116,15 @@ def friendly_api_error(err: Exception, base_url: str) -> str:
         502: "the upstream model provider failed. Retry, or choose another model.",
         503: "no provider is available for this model right now. Retry later or choose another model.",
     }
+    if is_deepseek(base_url):
+        hints.update({
+            400: "DeepSeek rejected the request body. Check the model id (use Fetch models) and max_tokens.",
+            402: "DeepSeek reports insufficient balance. Top up at platform.deepseek.com, then press Resume.",
+            422: "DeepSeek rejected a parameter value. Check the model id and settings.",
+            429: "DeepSeek is rate limiting this account. Wait a moment, or lower 'parallel calls' in Settings.",
+            500: "DeepSeek had an internal error. Retry in a few minutes.",
+            503: "DeepSeek is overloaded. Retry in a few minutes, or lower 'parallel calls' in Settings.",
+        })
     base = f"{type(err).__name__}: {err}"
     return f"{base}  ->  {hints[code]}" if code in hints else base
 
@@ -108,6 +152,7 @@ def _chat_text_impl(
         {"role": "user", "content": user_prompt},
     ]
     dropped = set()
+    cap = [None]   # per-model output limit learned from a provider error
 
     def _create(stream: bool, temp: Optional[float]):
         for _ in range(3):
@@ -115,7 +160,7 @@ def _chat_text_impl(
             if temp is not None and "temperature" not in dropped:
                 kw["temperature"] = temp
             if max_tokens and "max_tokens" not in dropped:
-                kw["max_tokens"] = max_tokens
+                kw["max_tokens"] = min(max_tokens, cap[0]) if cap[0] else max_tokens
             try:
                 # The non-streaming fallback must not retry inside the SDK: a stuck provider would cost
                 # (retries x timeout) minutes per call. The stop point handles repeated failures instead.
@@ -128,6 +173,12 @@ def _chat_text_impl(
                     log_fn(f"[{tag} WARN] '{model}' rejected 'temperature'; retrying without it.")
                     continue
                 if ("max_tokens" in msg or "max_completion_tokens" in msg) and "max_tokens" not in dropped:
+                    # e.g. DeepSeek: "valid range of max_tokens is [1, 8192]" -> ask for that maximum instead of dropping it
+                    rng = re.search(r"\[\s*1\s*,\s*(\d{3,7})\s*\]", str(err))
+                    if rng and int(rng.group(1)) < (cap[0] or 10**9):
+                        cap[0] = int(rng.group(1))
+                        log_fn(f"[{tag} WARN] '{model}' allows at most {cap[0]} output tokens; retrying with that limit.")
+                        continue
                     dropped.add("max_tokens")
                     log_fn(f"[{tag} WARN] '{model}' rejected 'max_tokens'; retrying without it.")
                     continue

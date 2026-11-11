@@ -47,7 +47,7 @@ from ..services.pipeline import (
     execute_preview_beat, execute_verify_only,
 )
 from ..core.llm import (
-    call_ai_json, fetch_openrouter_models,
+    call_ai_json, fetch_openrouter_models, fetch_provider_models,
 )
 from ..core.tts import (
     fetch_elevenlabs_voices,
@@ -181,6 +181,23 @@ def run_job(job_id: str, db_path: Optional[str] = None) -> int:
                 log_fn=ctx.log,
             )
             result = {"status": "ok", "provider": prov["key"], "response": ping_data}
+
+        elif kind == "fetch_models":
+            key = params.get("provider") or "openrouter"
+            prov = get_provider(conn, key)
+            if not prov:
+                raise ValueError(f"Provider '{key}' not found.")
+            ctx.log(f"Fetching available models from {prov['label']}...")
+            if key == "openrouter":
+                fetched = fetch_openrouter_models(prov.get("api_key") or "", ctx.log)
+            else:
+                fetched = fetch_provider_models(prov["base_url"], prov.get("api_key") or "", ctx.log)
+            for m in fetched:
+                if m.get("id"):
+                    add_catalog_model(conn, key, m["id"], role="coder", source="fetched")
+                    add_catalog_model(conn, key, m["id"], role="script", source="fetched")
+            ctx.log(f"Added {len(fetched)} model id(s) to the catalogue: " + ", ".join(m["id"] for m in fetched[:12]) + (" ..." if len(fetched) > 12 else ""))
+            result = {"count": len(fetched)}
 
         elif kind == "fetch_openrouter_models":
             prov = get_provider(conn, "openrouter")

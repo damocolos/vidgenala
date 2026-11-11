@@ -391,8 +391,16 @@ function switchProvider(key) {
         document.getElementById('provider-api-key').placeholder = p.has_key ? '••••••••' : 'Enter API key';
         document.getElementById('active-provider-badge').textContent = p.key.toUpperCase();
       }
+      showProviderHint(key);
     });
 }
+
+const PROVIDER_HINTS = {{ provider_hints|tojson }};
+function showProviderHint(key) {
+  const el = document.getElementById('provider-hint');
+  if (el) el.textContent = PROVIDER_HINTS[key] || 'OpenAI compatible endpoint';
+}
+document.addEventListener('DOMContentLoaded', () => { const s = document.getElementById('provider-select'); if (s) showProviderHint(s.value); });
 
 async function saveProviderConfig() {
   const key = document.getElementById('provider-select').value;
@@ -427,13 +435,14 @@ async function testAIConnection() {
 }
 
 async function fetchORModels() {
+  const key = document.getElementById('provider-select').value;
   try {
-    const res = await fetch(`/api/providers/openrouter/fetch-models`, { method: 'POST' });
-    if (!res.ok) throw new Error("Failed to start OpenRouter models fetch");
+    const res = await fetch(`/api/providers/${encodeURIComponent(key)}/fetch-models`, { method: 'POST' });
+    if (!res.ok) throw new Error("Could not start the model list fetch");
     const data = await res.json();
     connectJobEvents(data.job_id, {
       onDone: () => {
-        showToast("OpenRouter models fetched! Refreshing...", "success");
+        showToast("Model list updated. Refreshing...", "success");
         setTimeout(() => window.location.reload(), 1000);
       }
     });

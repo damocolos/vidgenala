@@ -475,7 +475,7 @@ async function viewAiCall(callId) {
 const KIND_LABEL = {
   generate_script: "Write script", generate_tts: "Voiceover", full_render: "Render video", reroll_beat: "Regenerate beat",
   preview_beat: "Preview beat", verify_mp4: "Verify MP4", scan_library: "Scan library", test_ai: "Test AI connection",
-  fetch_openrouter_models: "Fetch models", fetch_el_voices: "Fetch voices",
+  fetch_openrouter_models: "Fetch models", fetch_models: "Fetch models", fetch_el_voices: "Fetch voices",
 };
 const ACTIVITY = { open: false, selected: null, sse: null, timer: null, tab: "log", lastActive: new Set() };
 

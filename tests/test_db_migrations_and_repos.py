@@ -51,7 +51,7 @@ def test_connection_pragmas(db):
     assert cur.fetchone()[0] == 1
     cur.execute("PRAGMA busy_timeout;")
     assert cur.fetchone()[0] == 5000
-    assert get_user_version(db) == 2
+    assert get_user_version(db) == 3
 
 
 def test_secrets_encryption_and_masking():

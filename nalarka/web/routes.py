@@ -20,6 +20,7 @@ from ..db.repos.settings import (
 from ..core.script import script_word_budget, script_section_count, estimate_video_seconds
 from ..core.scripttext import parse_tagged_script
 from ..core.render import default_render_workers
+from ..core.constants import PROVIDER_HINTS
 from ..services.secrets import decrypt_secret
 from ..api.routers.renders import enrich_renders
 
@@ -151,6 +152,7 @@ def topic_studio(topic_id: int, request: Request, conn: sqlite3.Connection = Dep
             "duration_hint": duration_hint,
             "providers": providers,
             "active_provider": active_provider,
+            "provider_hints": PROVIDER_HINTS,
             "models": models,
             "tts_settings": tts_settings,
             "tts_voices": tts_voices,

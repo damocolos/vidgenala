@@ -5,10 +5,10 @@ from pathlib import Path
 from typing import Dict, Any, Optional
 
 from ..core.constants import (
-    PROVIDER_CUSTOM, PROVIDER_OPENROUTER,
+    PROVIDER_CUSTOM, PROVIDER_OPENROUTER, PROVIDER_DEEPSEEK,
     DEFAULT_MAX_DURATION,
 )
-from ..core.llm import is_openrouter
+from ..core.llm import is_openrouter, is_deepseek
 from ..core.render import default_render_workers
 from ..db.repos.settings import (
     set_setting, get_setting, get_all_settings,
@@ -30,7 +30,7 @@ def import_legacy_config_dict(
     prov_dict = config.get("providers", {})
     if prov_dict:
         for p_key, p_data in prov_dict.items():
-            if p_key in (PROVIDER_CUSTOM, PROVIDER_OPENROUTER):
+            if p_key in (PROVIDER_CUSTOM, PROVIDER_OPENROUTER, PROVIDER_DEEPSEEK):
                 set_provider(
                     conn,
                     key=p_key,
@@ -43,7 +43,7 @@ def import_legacy_config_dict(
     else:
         # Legacy flat structure
         b_url = config.get("base_url", "")
-        p_key = PROVIDER_OPENROUTER if is_openrouter(b_url) else PROVIDER_CUSTOM
+        p_key = PROVIDER_OPENROUTER if is_openrouter(b_url) else PROVIDER_DEEPSEEK if is_deepseek(b_url) else PROVIDER_CUSTOM
         set_provider(
             conn,
             key=p_key,
@@ -56,7 +56,7 @@ def import_legacy_config_dict(
 
     # Active provider
     active_prov = config.get("ai_provider")
-    if active_prov in (PROVIDER_CUSTOM, PROVIDER_OPENROUTER):
+    if active_prov in (PROVIDER_CUSTOM, PROVIDER_OPENROUTER, PROVIDER_DEEPSEEK):
         set_provider(conn, key=active_prov, is_active=True)
         set_setting(conn, "ui.active_provider", active_prov)
         imported_keys.append("ai_provider")

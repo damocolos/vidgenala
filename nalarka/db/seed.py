@@ -8,6 +8,7 @@ from ..core.constants import (
     DEFAULT_MAX_DURATION, ELEVENLABS_VOICE_PRESETS,
     PROVIDER_DEFAULT_BASE_URL, OPENROUTER_VISUAL_CODER_MODELS,
     OPENROUTER_SCRIPT_MODELS, OAO_VISUAL_CODER_MODELS,
+    DEEPSEEK_VISUAL_CODER_MODELS, DEEPSEEK_SCRIPT_MODELS,
     OAO_SCRIPT_MODELS,
 )
 from ..core.render import default_render_workers
@@ -72,6 +73,14 @@ def seed_defaults(conn: sqlite3.Connection) -> None:
             """,
             (or_url, OPENROUTER_VISUAL_CODER_MODELS[0], OPENROUTER_SCRIPT_MODELS[0]),
         )
+        conn.execute(
+            """
+            INSERT INTO ai_providers (key, label, base_url, coder_model, script_model, is_active)
+            VALUES ('deepseek', 'DeepSeek (direct, api.deepseek.com)', ?, ?, ?, 0)
+            ON CONFLICT(key) DO NOTHING
+            """,
+            (PROVIDER_DEFAULT_BASE_URL["deepseek"], DEEPSEEK_VISUAL_CODER_MODELS[0], DEEPSEEK_SCRIPT_MODELS[0]),
+        )
 
         # 3. Model catalog (presets)
         for model in OAO_VISUAL_CODER_MODELS:
@@ -109,6 +118,25 @@ def seed_defaults(conn: sqlite3.Connection) -> None:
                 ON CONFLICT(provider_key, model_id, role) DO NOTHING
                 """,
                 (model, 1 if ":free" in model else 0),
+            )
+
+        for model in DEEPSEEK_VISUAL_CODER_MODELS:
+            conn.execute(
+                """
+                INSERT INTO model_catalog (provider_key, model_id, role, is_free, source)
+                VALUES ('deepseek', ?, 'coder', 0, 'preset')
+                ON CONFLICT(provider_key, model_id, role) DO NOTHING
+                """,
+                (model,),
+            )
+        for model in DEEPSEEK_SCRIPT_MODELS:
+            conn.execute(
+                """
+                INSERT INTO model_catalog (provider_key, model_id, role, is_free, source)
+                VALUES ('deepseek', ?, 'script', 0, 'preset')
+                ON CONFLICT(provider_key, model_id, role) DO NOTHING
+                """,
+                (model,),
             )
 
         # 4. Preset TTS voices

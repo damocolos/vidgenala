@@ -99,13 +99,16 @@ def test_provider_connection(
     return JobAcceptedResponse(job_id=job_id)
 
 
-@router.post("/providers/openrouter/fetch-models", status_code=status.HTTP_202_ACCEPTED, response_model=JobAcceptedResponse)
-def fetch_openrouter_models_endpoint(
+@router.post("/providers/{key}/fetch-models", status_code=status.HTTP_202_ACCEPTED, response_model=JobAcceptedResponse)
+def fetch_provider_models_endpoint(
+    key: str,
     conn: sqlite3.Connection = Depends(get_db_conn),
     dispatcher=Depends(get_dispatcher),
 ):
-    job_id = f"fetch-or-{uuid.uuid4().hex[:8]}"
-    create_job(conn, job_id, kind="fetch_openrouter_models", weight="light", params={})
+    if not get_provider(conn, key):
+        raise HTTPException(status_code=404, detail=f"Provider '{key}' not found.")
+    job_id = f"fetch-models-{uuid.uuid4().hex[:8]}"
+    create_job(conn, job_id, kind="fetch_models", weight="light", params={"provider": key})
     dispatcher.dispatch_next()
     return JobAcceptedResponse(job_id=job_id)
 
