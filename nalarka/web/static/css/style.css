@@ -374,6 +374,7 @@ tbody tr:hover { background: var(--sheet-2); }
 .modal-content h3 { font-size: 1.3rem; margin-bottom: .85rem; padding-right: 2rem; flex: none; }
 .modal-content > * { flex: none; }
 .modal-content > .modal-scroll, .modal-content > #verification-modal-content { flex: 0 1 auto; min-height: 0; overflow: auto; }
+.modal-content > form { flex: 0 1 auto; min-height: 0; overflow: auto; padding: 2px; margin: -2px; }
 .modal-footer { margin-top: 1rem; display: flex; justify-content: flex-end; gap: .6rem; }
 .modal-close { position: absolute; right: .7rem; top: .5rem; background: none; border: 0; font-size: 1.6rem; line-height: 1; color: var(--ink-soft); cursor: pointer; }
 .player-frame { background: #000; border-radius: var(--radius); display: flex; justify-content: center; }
@@ -383,6 +384,18 @@ tbody tr:hover { background: var(--sheet-2); }
 .toast-success { border-left-color: #5ee6a8; }
 .text-muted { color: var(--ink-soft); }
 .text-danger { color: var(--fail); }
+
+.job-actions { display: flex; gap: .35rem; align-items: center; }
+.text-dump { margin: 0; padding: 0.85rem 1rem; background: var(--monitor); color: var(--monitor-text); border-radius: var(--radius); font: 400 0.78rem/1.6 var(--font-mono); white-space: pre-wrap; word-break: break-word; }
+.modal-content .table-container { overflow: visible; }
+.inline-form { display: flex; gap: 0.75rem; align-items: flex-end; }
+.inline-form .form-group { flex: 1; margin-bottom: 0; }
+.table-empty { padding: 2rem 1rem; text-align: center; color: var(--ink-soft); background: var(--sheet-2); border: 1px dashed var(--rule-strong); border-radius: var(--radius); }
+.table-empty b { display: block; color: var(--ink); margin-bottom: 0.2rem; }
+.scan-box { height: 140px; }
+.audio-mini { height: 34px; width: 260px; max-width: 100%; }
+.modal-content form .actions { margin-top: 1.25rem; }
+@media (max-width: 640px) { .inline-form { flex-direction: column; align-items: stretch; } }
 
 /* ---------- helpers ---------- */
 .row-link { color: var(--ink); font-weight: 700; text-decoration: none; }

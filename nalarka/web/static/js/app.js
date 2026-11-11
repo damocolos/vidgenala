@@ -299,7 +299,9 @@ async function showVerificationModal(renderId) {
   const content = document.getElementById("verification-modal-content");
   if (!modal || !content) return;
 
-  content.innerHTML = "<p>Loading verification suite results...</p>";
+  const heading = modal.querySelector("h3");
+  if (heading) heading.textContent = "Verification results";
+  content.innerHTML = "<p class='text-muted'>Loading results…</p>";
   openModal("verification-modal");
 
   try {
@@ -446,7 +448,7 @@ async function loadTopicAiUsage(topicId, containerId = "ai-usage") {
     const d = await res.json();
     box.innerHTML = d.summary.total
       ? aiSummaryHtml(d.summary)
-      : `<p class="text-muted" style="font-size:.88rem;">No AI requests yet. Every request is saved, so a failed run can continue without paying twice.</p>`;
+      : `<p class="text-muted">No AI requests yet. Every request is saved, so a failed run can continue without paying twice.</p>`;
   } catch (_) {}
 }
 
@@ -455,7 +457,7 @@ function showTextModal(title, text) {
   if (!m) return;
   const modal = document.getElementById("verification-modal");
   modal.querySelector("h3").textContent = title;
-  m.innerHTML = `<pre class="log-view" style="height:auto;max-height:60vh;white-space:pre-wrap;">${escapeHtml(text)}</pre>`;
+  m.innerHTML = `<pre class="text-dump">${escapeHtml(text)}</pre>`;
   openModal("verification-modal");
 }
 
@@ -536,7 +538,7 @@ async function refreshJobList(selectFirst = false) {
       return `<div class="job-row ${sel ? "sel" : ""}" onclick="selectJob('${j.id}')">
         <div style="min-width:0"><div class="jt">${escapeHtml(KIND_LABEL[j.kind] || j.kind)}${j.topic_id ? ` · topic ${j.topic_id}` : ""}</div>
           <div class="js">${escapeHtml((j.created_at || "").slice(5, 16))} · ${j.progress ?? 0}% ${j.status_text ? "· " + escapeHtml(String(j.status_text).slice(0, 40)) : ""}</div></div>
-        <div style="display:flex;gap:.35rem;align-items:center;">${statusBadge(j.status)}
+        <div class="job-actions">${statusBadge(j.status)}
           ${resumable && j.kind === "full_render" && (j.params?.batch_beats || 6) > 1 ? `<button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();resumeJob('${j.id}', ${Math.ceil((j.params?.batch_beats || 6) / 2)})" title="Resume, but ask the AI for ${Math.ceil((j.params?.batch_beats || 6) / 2)} beat(s) per request instead of ${j.params?.batch_beats || 6}. The storyboard plan is reused; code requests are asked again in smaller pieces.">Resume smaller</button>` : ""}
           ${resumable ? `<button class="btn btn-primary btn-sm" onclick="event.stopPropagation();resumeJob('${j.id}')" title="Re-run this job. Saved AI answers are reused, so you only pay for what is missing.">Resume</button>` : ""}
           ${cancellable ? `<button class="btn btn-danger btn-sm" onclick="event.stopPropagation();cancelJob('${j.id}')">Cancel</button>` : ""}</div></div>`;
