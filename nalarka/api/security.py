@@ -91,3 +91,27 @@ class LocalSecurityMiddleware:
                 return await send({"type": "websocket.close", "code": 1008})
             return await deny(scope, receive, send)
         await self.app(scope, receive, send)
+
+
+LOOPBACK_BINDS = {"127.0.0.1", "localhost", "::1", "[::1]"}
+MIN_TOKEN_LEN = 16
+
+
+def bind_problems(host: str, token: str, allowed_hosts: str = "") -> list:
+    """Reasons it is unsafe to listen on `host`. Empty list = fine.
+
+    Listening beyond this computer (0.0.0.0, a LAN or public address) exposes provider keys and paid renders,
+    so it requires an API token. Plain http also sends that token in clear text, hence the HTTPS note."""
+    host = (host or "").strip().lower()
+    if host in LOOPBACK_BINDS:
+        return []
+    problems = []
+    if not token:
+        problems.append(f"NALARKA_HOST={host} listens beyond this computer, so NALARKA_API_TOKEN must be set "
+                        f"(at least {MIN_TOKEN_LEN} random characters, e.g. python -c \"import secrets; print(secrets.token_urlsafe(24))\").")
+    elif len(token) < MIN_TOKEN_LEN:
+        problems.append(f"NALARKA_API_TOKEN is too short ({len(token)} characters); use at least {MIN_TOKEN_LEN}.")
+    if not (allowed_hosts or "").strip():
+        problems.append("Set NALARKA_ALLOWED_HOSTS to the host name people will type (e.g. studio.example.com); "
+                        "other Host headers are rejected on purpose.")
+    return problems

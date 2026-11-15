@@ -297,6 +297,16 @@
         <div class="card-title"><span class="step-no">4</span>Beat inspector</div>
         <span class="card-note">Fix one beat without rendering the whole video again.</span>
       </div>
+      {% if beats %}
+      <div class="beat-strip" id="beat-strip" aria-label="Beat status">
+        <div class="beat-strip-head"><b>{{ beat_counts.saved }}/{{ beat_counts.total }}</b> beats saved
+          {% if beat_counts.missing %}<span class="text-muted">· {{ beat_counts.missing }} still to generate (the next Render asks only for these)</span>{% endif %}
+          {% if beat_counts.fixed %}<span class="text-muted">· {{ beat_counts.fixed }} rewritten by the audit</span>{% endif %}</div>
+        <div class="beat-cells">
+          {% for b in beats %}<button type="button" class="beat-cell beat-{{ b.state }}" title="Beat #{{ '%02d'|format(b.beat_no) }}: {{ b.state }}" onclick="document.getElementById('beat-select').value='{{ b.id }}';onBeatSelected('{{ b.id }}')">{{ b.beat_no }}</button>{% endfor %}
+        </div>
+      </div>
+      {% endif %}
 
       <div class="form-group">
         <label for="beat-select">Beat</label>

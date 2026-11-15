@@ -56,14 +56,14 @@ from ..services.secrets import decrypt_secret
 from ..services.paths import safe_output_name
 from ..services.llm_ledger import DbLLMRecorder
 from ..services.render_media import finalize_render_media, probe_video
-from ..db.repos.llm_calls import job_chain
+from ..db.repos.llm_calls import job_chain, topic_job_ids
 from ..db.repos.renders import (
     bind_render_to_job, update_render_media, end_unfinished_render_for_job,
     update_render_metrics, get_render,
 )
 from ..core.verify import VerificationFailed
 from ..core.llm import set_llm_recorder
-from ..core.llm_guard import ProviderGuard, ProviderCircuitOpen, set_llm_guard
+from ..core.llm_guard import ProviderGuard, ProviderCircuitOpen, set_llm_guard, parse_prices
 
 
 def _expected_total_dur(vo_path) -> Optional[int]:
@@ -138,17 +138,31 @@ def run_job(job_id: str, db_path: Optional[str] = None) -> int:
     # previous run already got answers for (no second charge).
     resume_of = params.get("resume_of")
     chain = job_chain(conn, resume_of) if resume_of else []
-    set_llm_recorder(DbLLMRecorder(db_path, job_id, topic_id, replay_job_ids=chain))
-    # Stop point: too many failed AI calls, or AI work taking too long, ends the job (resumable).
+    earlier: list = []
+    if kind == "full_render" and str(get_setting(conn, "ai.reuse_earlier_answers", "true")).lower() in ("true", "1", "yes", "on"):
+        # A fresh Render of the same topic also reuses answers earlier jobs already got (same prompt = same
+        # content hash, so this can never put a wrong answer in the wrong place).
+        earlier = [j for j in topic_job_ids(conn, topic_id, exclude=job_id) if j not in chain]
+    set_llm_recorder(DbLLMRecorder(db_path, job_id, topic_id, replay_job_ids=chain + earlier))
+    # Stop point: too many failed AI calls, AI work taking too long, or a spending cap ends the job (resumable).
     def _int_setting(key: str, default: int) -> int:
         try:
-            return int(get_setting(conn, key, default))
+            return int(float(get_setting(conn, key, default)))
+        except (TypeError, ValueError):
+            return default
+
+    def _float_setting(key: str, default: float) -> float:
+        try:
+            return float(get_setting(conn, key, default))
         except (TypeError, ValueError):
             return default
     set_llm_guard(ProviderGuard(
         max_consecutive=_int_setting("ai.max_consecutive_failures", 3),
         max_total=_int_setting("ai.max_total_failures", 6),
         max_minutes=_int_setting("ai.max_minutes_per_run", 45),
+        max_tokens=_int_setting("ai.max_job_tokens", 0),
+        max_cost_usd=_float_setting("ai.max_job_cost_usd", 0.0),
+        prices=parse_prices(get_setting(conn, "ai.prices", "{}")),
     ))
     resume_workdir = (data_root() / "renders" / resume_of) if resume_of else None
     active_render = {"id": None}
@@ -162,6 +176,8 @@ def run_job(job_id: str, db_path: Optional[str] = None) -> int:
 
     try:
         ctx.log(f"[JOB START] Running {kind} (job_id: {job_id}, pid: {os.getpid()})")
+        if earlier and not chain:
+            ctx.log(f"[AI LEDGER] Answers saved by {len(earlier)} earlier job(s) of this topic can be reused (no cost) when the request is identical.")
         if chain:
             ctx.log(f"[RESUME] Resuming job {resume_of}: AI responses it already received are replayed from the database (no cost).")
         result = None
@@ -436,7 +452,9 @@ def run_job(job_id: str, db_path: Optional[str] = None) -> int:
                 ctx=ctx,
                 base_url=prov["base_url"],
                 api_key=prov["api_key"] or "",
-                coder_model=prov["coder_model"],
+                coder_model=(str(get_setting(conn, "ai.pass2_model", "") or "").strip() or prov["coder_model"]),
+                storyboard_model=(str(get_setting(conn, "ai.storyboard_model", "") or "").strip() or None),
+                audit_model=(str(get_setting(conn, "ai.audit_model", "") or "").strip() or None),
                 topic=topic["title"],
                 script_raw_text=cur_sc["raw_text"],
                 vo_path=vo_path,

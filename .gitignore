@@ -8,6 +8,7 @@ config*.json
 !config.example.json
 *.env
 .env*
+!.env.example
 *.key
 *.pem
 *credentials*

@@ -300,11 +300,13 @@ def generate_two_pass_storyboard_and_code(
     parallel_calls: Optional[int] = None,
     on_scenes_ready: Optional[Callable[[dict], None]] = None,
     on_code_update: Optional[Callable[[dict, str], None]] = None,
+    plan_model: Optional[str] = None,
 ) -> Tuple[dict, Dict[str, Any]]:
+    """`model` writes the beat code (Pass 2); `plan_model` (default: same) writes the Pass 1 storyboard."""
     if cancel_event is not None and cancel_event.is_set():
         raise InterruptedError("Operation was cancelled by user.")
     log_fn(f"[PASS 1/2: CREATIVE DIRECTOR] Planning topic-specific visual blueprints for '{topic}' ({total_dur}s)...")
-    raw_scenes = plan_storyboard(base_url, api_key, model, topic, sections, words, total_dur, log_fn)
+    raw_scenes = plan_storyboard(base_url, api_key, plan_model or model, topic, sections, words, total_dur, log_fn)
     if cancel_event is not None and cancel_event.is_set():
         raise InterruptedError("Operation was cancelled by user.")
     scenes = sanitize_scenes(raw_scenes, total_dur, log_fn)

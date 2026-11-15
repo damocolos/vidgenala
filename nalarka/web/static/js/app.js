@@ -431,12 +431,27 @@ async function verifyRender(renderId) {
 // ---------------------------------------------------------------------------------------------
 // AI request ledger (what was asked, what was paid for, what a resume reuses)
 // ---------------------------------------------------------------------------------------------
-function aiSummaryHtml(s) {
+function aiCostHtml(cost) {
+  if (!cost || !cost.models || !cost.models.length) return "";
+  const n = (v) => Math.round(v || 0).toLocaleString();
+  const usd = (v) => (v == null ? '<span class="text-muted">no price set</span>' : "$" + v.toFixed(v < 1 ? 4 : 2));
+  const est = cost.models.some((m) => m.estimated_calls) ? `<p class="text-muted ai-note">Some counts are estimated (characters / 4) because the provider did not report tokens.</p>` : "";
+  const rows = cost.models.map((m) => `<tr><td class="mono">${escapeHtml(m.model || "")}</td>
+    <td class="num">${n(m.paid_tokens)}</td><td class="num">${usd(m.paid_usd)}</td>
+    <td class="num">${n(m.saved_tokens)}</td><td class="num">${usd(m.saved_usd)}</td></tr>`).join("");
+  const head = cost.has_prices
+    ? `<b>${"$" + cost.paid_usd.toFixed(cost.paid_usd < 1 ? 4 : 2)}</b> spent, <b>${"$" + cost.saved_usd.toFixed(cost.saved_usd < 1 ? 4 : 2)}</b> saved by reuse`
+    : `Add per-model prices in Settings to see dollars. Tokens are shown below.`;
+  return `<div class="ai-cost"><p class="ai-cost-head">${head}</p>
+    <div class="table-container"><table class="ai-table"><thead><tr><th>Model</th><th class="num">tokens paid</th><th class="num">cost</th><th class="num">tokens reused</th><th class="num">saved</th></tr></thead><tbody>${rows}</tbody></table></div>${est}</div>`;
+}
+
+function aiSummaryHtml(s, cost) {
   const tok = (c) => Math.round((c || 0) / 4).toLocaleString();
   return `<div class="ai-summary">
     <div><b>${s.paid_calls || 0}</b><span>paid requests<br>≈ ${tok((s.paid_req_chars || 0) + (s.paid_resp_chars || 0))} tokens</span></div>
     <div class="saved"><b>${s.replayed_calls || 0}</b><span>reused from saved<br>≈ ${tok((s.saved_req_chars || 0) + (s.saved_resp_chars || 0))} tokens not re-bought</span></div>
-    <div><b>${s.error_calls || 0}</b><span>failed requests</span></div></div>`;
+    <div><b>${s.error_calls || 0}</b><span>failed requests</span></div></div>${aiCostHtml(cost)}`;
 }
 
 async function loadTopicAiUsage(topicId, containerId = "ai-usage") {
@@ -447,7 +462,7 @@ async function loadTopicAiUsage(topicId, containerId = "ai-usage") {
     if (!res.ok) return;
     const d = await res.json();
     box.innerHTML = d.summary.total
-      ? aiSummaryHtml(d.summary)
+      ? aiSummaryHtml(d.summary, d.cost)
       : `<p class="text-muted">No AI requests yet. Every request is saved, so a failed run can continue without paying twice.</p>`;
   } catch (_) {}
 }
@@ -580,7 +595,7 @@ async function loadDrawerAi(jobId) {
   if (!res.ok) { box.innerHTML = ""; return; }
   const d = await res.json();
   if (!d.calls.length) { box.innerHTML = `<div class="empty-state"><b>No AI requests in this job</b>Script and vector-art requests are saved here, with their full text.</div>`; return; }
-  box.innerHTML = aiSummaryHtml(d.summary) + `<div class="table-container"><table class="ai-table"><thead><tr><th>Step</th><th>Model</th><th>Result</th><th class="num">chars</th><th></th></tr></thead><tbody>` +
+  box.innerHTML = aiSummaryHtml(d.summary, d.cost) + `<div class="table-container"><table class="ai-table"><thead><tr><th>Step</th><th>Model</th><th>Result</th><th class="num">chars</th><th></th></tr></thead><tbody>` +
     d.calls.map((c) => {
       const st = c.status === "ok" ? (c.accepted ? '<span class="badge badge-green">paid · used</span>' : '<span class="badge badge-orange">paid · not usable</span>')
         : c.status === "replayed" ? '<span class="badge badge-teal">reused · free</span>' : '<span class="badge badge-red">error</span>';

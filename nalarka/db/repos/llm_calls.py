@@ -24,6 +24,8 @@ def record_call(
     duration_sec: Optional[float] = None,
     replay_of: Optional[int] = None,
     accepted: bool = False,
+    prompt_tokens: Optional[int] = None,
+    completion_tokens: Optional[int] = None,
 ) -> int:
     with conn:
         cur = conn.execute(
@@ -31,14 +33,14 @@ def record_call(
             INSERT INTO llm_calls (
               job_id, topic_id, tag, model, base_url, request_hash, system_prompt, user_prompt,
               temperature, max_tokens, response_text, finish_reason, status, accepted, error,
-              req_chars, resp_chars, duration_sec, replay_of
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+              req_chars, resp_chars, duration_sec, replay_of, prompt_tokens, completion_tokens
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """,
             (
                 job_id, topic_id, tag, model, base_url, request_hash, system_prompt, user_prompt,
                 temperature, max_tokens, response_text, finish_reason, status, int(accepted), error,
                 len(system_prompt or "") + len(user_prompt or ""), len(response_text or ""),
-                duration_sec, replay_of,
+                duration_sec, replay_of, prompt_tokens, completion_tokens,
             ),
         )
         return cur.lastrowid
@@ -84,7 +86,7 @@ def job_chain(conn: sqlite3.Connection, job_id: Optional[str], max_depth: int = 
 
 _LIST_COLS = (
     "id, job_id, topic_id, tag, model, status, accepted, finish_reason, error, "
-    "req_chars, resp_chars, duration_sec, replay_of, created_at"
+    "req_chars, resp_chars, duration_sec, replay_of, prompt_tokens, completion_tokens, created_at"
 )
 
 
@@ -112,13 +114,17 @@ def get_call(conn: sqlite3.Connection, call_id: int) -> Optional[dict]:
     return dict(row) if row else None
 
 
-def summary(conn: sqlite3.Connection, *, job_id: Optional[str] = None, topic_id: Optional[int] = None) -> Dict[str, Any]:
+def _where(job_id, topic_id):
     where, args = [], []
     if job_id:
         where.append("job_id = ?"); args.append(job_id)
     if topic_id is not None:
         where.append("topic_id = ?"); args.append(topic_id)
-    w = (" WHERE " + " AND ".join(where)) if where else ""
+    return ((" WHERE " + " AND ".join(where)) if where else ""), args
+
+
+def summary(conn: sqlite3.Connection, *, job_id: Optional[str] = None, topic_id: Optional[int] = None) -> Dict[str, Any]:
+    w, args = _where(job_id, topic_id)
     r = conn.execute(
         f"""
         SELECT COUNT(*) AS total,
@@ -134,3 +140,42 @@ def summary(conn: sqlite3.Connection, *, job_id: Optional[str] = None, topic_id:
         args,
     ).fetchone()
     return dict(r)
+
+
+def usage_by_model(conn: sqlite3.Connection, *, job_id: Optional[str] = None, topic_id: Optional[int] = None) -> List[Dict[str, Any]]:
+    """Per model: tokens paid for and tokens saved by replays. Reported tokens when the provider sent them, else chars/4."""
+    w, args = _where(job_id, topic_id)
+    rows = conn.execute(
+        f"""
+        SELECT model, status,
+               COUNT(*) AS calls,
+               COALESCE(SUM(COALESCE(prompt_tokens, req_chars / 4)), 0)     AS prompt_tokens,
+               COALESCE(SUM(COALESCE(completion_tokens, resp_chars / 4)), 0) AS completion_tokens,
+               COALESCE(SUM(prompt_tokens IS NULL), 0)                       AS estimated_calls
+        FROM llm_calls{w}{' AND' if w else ' WHERE'} status IN ('ok','replayed')
+        GROUP BY model, status
+        """,
+        args,
+    ).fetchall()
+    out: Dict[str, Dict[str, Any]] = {}
+    for r in rows:
+        m = out.setdefault(r["model"] or "", {"model": r["model"] or "", "paid_calls": 0, "paid_prompt": 0, "paid_completion": 0,
+                                              "saved_calls": 0, "saved_prompt": 0, "saved_completion": 0, "estimated_calls": 0})
+        pre = "paid" if r["status"] == "ok" else "saved"
+        m[f"{pre}_calls"] += r["calls"]
+        m[f"{pre}_prompt"] += r["prompt_tokens"]
+        m[f"{pre}_completion"] += r["completion_tokens"]
+        if r["status"] == "ok":
+            m["estimated_calls"] += r["estimated_calls"]
+    return sorted(out.values(), key=lambda x: x["model"])
+
+
+def topic_job_ids(conn: sqlite3.Connection, topic_id: Optional[int], exclude: Optional[str] = None, limit: int = 20) -> List[str]:
+    """Newest-first jobs of a topic that stored accepted answers. Answers are keyed by content hash, so
+    replaying them in a later job of the same topic is always safe."""
+    if topic_id is None:
+        return []
+    rows = conn.execute(
+        "SELECT job_id, MAX(id) AS last FROM llm_calls WHERE topic_id = ? AND accepted = 1 AND job_id IS NOT NULL "
+        "GROUP BY job_id ORDER BY last DESC LIMIT ?", (topic_id, limit + 1)).fetchall()
+    return [r["job_id"] for r in rows if r["job_id"] != exclude][:limit]

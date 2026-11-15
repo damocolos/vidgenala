@@ -16,3 +16,10 @@ services:
       - NALARKA_DATA_DIR=/app/data
       - NALARKA_DB_PATH=/app/data/nalarka.db
       - NALARKA_KEY_FILE=/app/data/.secret_key
+      # Required: the container listens on all interfaces. Put these in a .env file next to this file (see .env.example).
+      - NALARKA_API_TOKEN=${NALARKA_API_TOKEN:?set NALARKA_API_TOKEN in .env (see .env.example)}
+      - NALARKA_ALLOWED_HOSTS=${NALARKA_ALLOWED_HOSTS:-localhost,127.0.0.1}
+      - NALARKA_ALLOWED_ORIGINS=${NALARKA_ALLOWED_ORIGINS:-}
+      # Optional provider keys (or save them in Settings instead)
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}

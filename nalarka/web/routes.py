@@ -12,7 +12,7 @@ from ..db.repos.scripts import get_current_script, list_scripts_for_topic
 from ..db.repos.voiceovers import list_voiceovers_for_topic
 from ..db.repos.library import list_library_items
 from ..db.repos.renders import list_all_renders, list_renders_for_topic, get_verification_for_render, verification_summaries
-from ..db.repos.storyboards import get_current_storyboard, list_beats_for_storyboard
+from ..db.repos.storyboards import get_current_storyboard, list_beats_for_storyboard, beat_state_summary
 from ..db.repos.settings import (
     list_providers, get_provider, get_models_catalog,
     list_tts_voices, get_all_settings, get_setting,
@@ -134,6 +134,7 @@ def topic_studio(topic_id: int, request: Request, conn: sqlite3.Connection = Dep
     # Storyboard & Beats
     sb = get_current_storyboard(conn, topic_id)
     beats = list_beats_for_storyboard(conn, sb["id"]) if sb else []
+    beat_counts = beat_state_summary(conn, beats)
 
     # Latest Render
     renders = list_renders_for_topic(conn, topic_id)
@@ -160,6 +161,7 @@ def topic_studio(topic_id: int, request: Request, conn: sqlite3.Connection = Dep
             "ref_items": ref_items,
             "selected_ref": selected_ref,
             "beats": beats,
+            "beat_counts": beat_counts,
             "latest_render": latest_render,
             "latest_verification": latest_verification,
             "default_workers": default_render_workers(),

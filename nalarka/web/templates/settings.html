@@ -99,6 +99,47 @@
       </form>
     </div>
 
+    <!-- AI budget, prices and per-stage models -->
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">AI budget and models per stage</div>
+      </div>
+      <p class="text-muted" style="font-size:.85rem;margin-bottom:1rem;">
+        A job stops when it reaches the budget; what it already paid for is saved and Resume continues from there. Set 0 for no limit.
+        Dollar figures only use the prices you enter below, and nothing is assumed for a model without one.
+      </p>
+      <form onsubmit="saveStopPoint(event)">
+        <div class="form-row">
+          <div class="form-group">
+            <label for="bg-tokens">Token budget per job</label>
+            <input type="number" id="bg-tokens" min="0" placeholder="0">
+          </div>
+          <div class="form-group">
+            <label for="bg-cost">Cost budget per job (USD)</label>
+            <input type="number" id="bg-cost" min="0" step="0.01" placeholder="0">
+          </div>
+        </div>
+        <div class="form-group">
+          <label for="bg-prices">Prices (USD per million tokens)</label>
+          <textarea id="bg-prices" rows="4" class="mono" placeholder='{"deepseek-flash": [0.14, 0.28]}'></textarea>
+          <small class="text-muted">JSON: model id, then [input price, output price]. Copy the numbers from your provider's pricing page.</small>
+        </div>
+        <div class="form-group">
+          <label for="bg-storyboard">Storyboard model (Pass 1)</label>
+          <input type="text" id="bg-storyboard" placeholder="empty = the provider's coder model">
+        </div>
+        <div class="form-group">
+          <label for="bg-pass2">Beat code model (Pass 2)</label>
+          <input type="text" id="bg-pass2" placeholder="empty = the provider's coder model">
+        </div>
+        <div class="form-group">
+          <label for="bg-audit">Audit and rewrite model</label>
+          <input type="text" id="bg-audit" placeholder="empty = same as beat code model">
+        </div>
+        <button type="submit" class="btn btn-primary btn-sm">Save budget and models</button>
+      </form>
+    </div>
+
     <!-- Backup & Migration (F-08) -->
   </div>
 
@@ -173,7 +214,10 @@
 
 <script>
 const STOP_KEYS = {"sp-consecutive": "ai.max_consecutive_failures", "sp-total": "ai.max_total_failures", "sp-minutes": "ai.max_minutes_per_run",
-  "sp-batch": "ai.batch_beats", "sp-parallel": "ai.parallel_calls"};
+  "sp-batch": "ai.batch_beats", "sp-parallel": "ai.parallel_calls",
+  "bg-tokens": "ai.max_job_tokens", "bg-cost": "ai.max_job_cost_usd", "bg-prices": "ai.prices",
+  "bg-storyboard": "ai.storyboard_model", "bg-pass2": "ai.pass2_model", "bg-audit": "ai.audit_model"};
+const KEEP_EMPTY = new Set(["ai.storyboard_model", "ai.pass2_model", "ai.audit_model", "ai.prices"]);
 async function loadStopPoint() {
   try {
     const cfg = await (await fetch('/api/config')).json();
@@ -188,7 +232,7 @@ async function saveStopPoint(e) {
   const settings = {};
   for (const [id, key] of Object.entries(STOP_KEYS)) {
     const el = document.getElementById(id);
-    if (el && e.target.contains(el) && el.value !== '') settings[key] = el.value;
+    if (el && e.target.contains(el) && (el.value !== '' || KEEP_EMPTY.has(key))) settings[key] = el.value;
   }
   const res = await fetch('/api/config', {method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({settings})});
   if (res.ok) showToast('Saved. It applies to the next job you start.', 'success');

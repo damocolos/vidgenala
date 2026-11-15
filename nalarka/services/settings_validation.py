@@ -1,4 +1,5 @@
 """Whitelist + type validation for PUT /api/config."""
+import json
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
@@ -53,6 +54,18 @@ def validate_settings(settings: Dict[str, Any]) -> Tuple[Dict[str, Any], List[st
                 val = max(0, min(100, val))
             elif k == "ai.max_minutes_per_run":
                 val = max(0, min(600, val))
+            elif k == "ai.max_job_tokens":
+                val = max(0, min(1_000_000_000, val))
+            elif k == "ai.max_job_cost_usd":
+                val = max(0.0, min(100000.0, val))
+            elif k == "ai.prices":
+                from ..core.llm_guard import parse_prices
+                parsed = parse_prices(val)
+                if val.strip() and val.strip() != "{}" and not parsed:
+                    raise ValueError('expected JSON like {"model-id": [input_usd_per_million, output_usd_per_million]}')
+                val = json.dumps({m: list(p) for m, p in parsed.items()}, ensure_ascii=False)
+            elif k in ("ai.storyboard_model", "ai.pass2_model", "ai.audit_model"):
+                val = val.strip()[:200]
             elif k == "render.workers":
                 val = max(1, min(16, val))
             elif k.startswith("tts.") and vtype == "float":

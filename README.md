@@ -22,10 +22,11 @@ An automated AI-driven motion graphics generator and vector animation studio pow
    cd vidgenala
    ```
 
-2. **Install Python dependencies**:
+2. **Install Python dependencies** (runtime only; use `requirements-dev.txt` if you also run the tests):
    ```bash
    pip install -r requirements.txt
    ```
+   `requirements.lock` is a full `pip freeze` from one developer machine. Do not install it on a server.
 
 3. **Configure Settings**:
    Copy the example config and add your credentials:
@@ -53,6 +54,36 @@ python nalarka_local.py
 ```
 
 
+## Controlling AI cost
+
+Every AI request is saved in the database (Settings and the *AI requests* tab show them). In **Settings > AI budget and models per stage** you can:
+
+- set a **token budget** and/or a **cost budget (USD)** per job. When a job reaches it, the job stops; everything already paid for is saved, and *Resume* continues from there. `0` means no limit.
+- enter **prices** (USD per million tokens, copied from your provider's pricing page). The app never assumes a price: a model without one shows tokens only. With prices, the AI requests tab shows what a run cost and what reuse saved.
+- choose a **different model per stage**: storyboard (Pass 1), beat code (Pass 2) and audit/rewrite. Empty means the provider's coder model.
+
+Pressing *Render* again for the same topic reuses answers that earlier jobs already received for an identical request, so a failed run does not have to be paid for twice. Only beats without code are requested again.
+
+Try a provider cheaply before a real run (a few tokens each; keys are never printed):
+
+```bash
+python scripts/smoke_llm.py              # every provider that has a key
+python scripts/smoke_llm.py deepseek --models
+```
+
+## Tests
+
+```bash
+pip install -r requirements-dev.txt
+python -m pytest -q
+```
+GitHub Actions runs the same on Ubuntu and Windows (`.github/workflows/tests.yml`). Some golden-image tests skip when the reference fonts are not installed.
+
+## Using it from another device
+
+By default the server only listens on `127.0.0.1`. To listen elsewhere (`NALARKA_HOST=0.0.0.0`, or inside Docker) `run_server.py` refuses to start unless you set `NALARKA_API_TOKEN` (16+ characters) and `NALARKA_ALLOWED_HOSTS`. See `.env.example`.
+The token is sent with every request, so use **HTTPS**: put a reverse proxy in front (for example Caddy: `studio.example.com { reverse_proxy 127.0.0.1:8000 }`) and add `https://studio.example.com` to `NALARKA_ALLOWED_ORIGINS`. Do not expose plain `http://` over the internet.
+
 ## Keamanan lokal (env opsional)
 
 | Variabel | Fungsi |
@@ -68,9 +99,11 @@ python nalarka_local.py
 ## Docker
 
 ```bash
+cp .env.example .env          # then set NALARKA_API_TOKEN (required in Docker)
 mkdir -p data references_library && sudo chown 1000:1000 data references_library
 docker compose up --build
 ```
+Open `http://127.0.0.1:8000/auth?token=<your token>` once to sign the browser in.
 The container runs as UID 1000, so the mounted `data/` folder must be writable by that user.
 `NALARKA_DATA_DIR` (default `./data`) controls where the DB, uploads, renders and the encryption key live;
 `NALARKA_KEY_FILE` overrides the key file location (an existing `data/.secret_key` is always reused).

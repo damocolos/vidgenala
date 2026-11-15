@@ -259,6 +259,8 @@ def execute_full_render(
     batch_beats: Optional[int] = None,
     parallel_calls: Optional[int] = None,
     on_code_update: Optional[Callable[[dict, str], None]] = None,
+    storyboard_model: Optional[str] = None,
+    audit_model: Optional[str] = None,
 ) -> dict:
     """Executes full video generation pipeline from voiceover and script to verified MP4."""
     ctx.check_cancelled()
@@ -330,6 +332,7 @@ def execute_full_render(
             base_url=base_url,
             api_key=api_key,
             model=coder_model,
+            plan_model=storyboard_model or None,
             topic=topic,
             sections=parsed_sections,
             words=words,
@@ -358,7 +361,7 @@ def execute_full_render(
 
     ctx.check_cancelled()
     # Audit loop
-    ctx.set_progress(62, "Auditing vector complexity, motion & visual uniqueness...")
+    ctx.set_progress(62, f"Auditing vector complexity, motion & visual uniqueness via '{audit_model or coder_model}'...")
     audit_and_fix_beats(
         plan=plan,
         namespace=namespace,
@@ -367,7 +370,7 @@ def execute_full_render(
         height=height,
         base_url=base_url,
         api_key=api_key,
-        model=coder_model,
+        model=audit_model or coder_model,
         topic=topic,
         log_fn=ctx.log,
         max_retries=2,

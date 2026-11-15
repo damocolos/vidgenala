@@ -37,3 +37,27 @@ class DbLLMRecorder:
 
     def accept(self, call_id: int) -> None:
         self._run(repo.mark_accepted, call_id)
+
+
+def cost_report(conn, *, job_id: Optional[str] = None, topic_id: Optional[int] = None) -> dict:
+    """Tokens and (when a price is set) USD, per model: what was paid for and what replays saved.
+
+    Prices come only from the user's `ai.prices` setting; a model without a price shows tokens but no
+    dollar figure. Tokens are the provider's own counts when it sent them, otherwise characters / 4."""
+    from ..core.llm_guard import estimate_cost, parse_prices
+    from ..db.repos.settings import get_setting
+    prices = parse_prices(get_setting(conn, "ai.prices", "{}"))
+    rows, paid_usd, saved_usd, unpriced = [], 0.0, 0.0, []
+    for m in repo.usage_by_model(conn, job_id=job_id, topic_id=topic_id):
+        paid = estimate_cost(prices, m["model"], m["paid_prompt"], m["paid_completion"])
+        saved = estimate_cost(prices, m["model"], m["saved_prompt"], m["saved_completion"])
+        if paid is None:
+            unpriced.append(m["model"])
+        else:
+            paid_usd += paid
+            saved_usd += saved or 0.0
+        rows.append({**m, "paid_tokens": m["paid_prompt"] + m["paid_completion"],
+                     "saved_tokens": m["saved_prompt"] + m["saved_completion"],
+                     "paid_usd": paid, "saved_usd": saved})
+    return {"models": rows, "paid_usd": round(paid_usd, 4), "saved_usd": round(saved_usd, 4),
+            "unpriced_models": unpriced, "has_prices": bool(prices)}

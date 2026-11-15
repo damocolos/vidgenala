@@ -36,6 +36,13 @@ DEFAULT_SETTINGS = [
     ("ai.max_consecutive_failures", "3", "int"),
     ("ai.max_total_failures", "6", "int"),
     ("ai.max_minutes_per_run", "45", "int"),
+    ("ai.max_job_tokens", "0", "int"),
+    ("ai.max_job_cost_usd", "0", "float"),
+    ("ai.prices", "{}", "string"),
+    ("ai.storyboard_model", "", "string"),
+    ("ai.pass2_model", "", "string"),
+    ("ai.audit_model", "", "string"),
+    ("ai.reuse_earlier_answers", "true", "bool"),
     ("ui.active_provider", "custom", "string"),
 ]
 

@@ -38,11 +38,45 @@ HINT = ("Stopped to protect your budget and time. Everything the AI already retu
         "wait a few minutes (or switch provider/model in Settings) and press Resume.")
 
 
+def parse_prices(raw) -> dict:
+    """{"model-id": [usd_per_million_input, usd_per_million_output]} from a JSON string/dict. Bad entries are skipped."""
+    import json
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw) if raw.strip() else {}
+        except ValueError:
+            return {}
+    out = {}
+    for model, pr in (raw.items() if isinstance(raw, dict) else []):
+        try:
+            a, b = float(pr[0]), float(pr[1])
+        except (TypeError, ValueError, IndexError, KeyError):
+            continue
+        if a >= 0 and b >= 0 and str(model).strip():
+            out[str(model).strip()] = (a, b)
+    return out
+
+
+def estimate_cost(prices: dict, model: str, prompt_tokens: int, completion_tokens: int) -> Optional[float]:
+    """USD for one call, or None when the model has no price in the table (we never guess a price)."""
+    pr = prices.get((model or "").strip())
+    if pr is None:
+        return None
+    return (prompt_tokens * pr[0] + completion_tokens * pr[1]) / 1_000_000.0
+
+
 class ProviderGuard:
-    def __init__(self, max_consecutive: int = 3, max_total: int = 6, max_minutes: float = 45.0):
+    def __init__(self, max_consecutive: int = 3, max_total: int = 6, max_minutes: float = 45.0,
+                 max_tokens: int = 0, max_cost_usd: float = 0.0, prices: Optional[dict] = None):
         self.max_consecutive = max(0, int(max_consecutive))   # 0 = off
         self.max_total = max(0, int(max_total))
         self.max_seconds = max(0.0, float(max_minutes)) * 60.0
+        self.max_tokens = max(0, int(max_tokens))              # 0 = off; prompt+completion, this run only
+        self.max_cost_usd = max(0.0, float(max_cost_usd))      # 0 = off; counts models that have a price
+        self.prices = prices or {}
+        self.tokens_used = 0
+        self.cost_used = 0.0
+        self.unpriced_models = set()
         self._lock = threading.Lock()
         self.consecutive = 0
         self.total = 0
@@ -67,6 +101,25 @@ class ProviderGuard:
                 raise ProviderCircuitOpen(self._trip(
                     f"AI work in this run has taken over {self.max_seconds / 60:.0f} minutes"
                     + (f" (last error: {self.last_error})." if self.last_error else ".")))
+
+    def on_usage(self, model: str, prompt_tokens: int, completion_tokens: int) -> None:
+        """Count a paid call against the budget; raise ProviderCircuitOpen once a cap is passed."""
+        with self._lock:
+            self.tokens_used += prompt_tokens + completion_tokens
+            cost = estimate_cost(self.prices, model, prompt_tokens, completion_tokens)
+            if cost is None:
+                self.unpriced_models.add(model)
+            else:
+                self.cost_used += cost
+            why = None
+            if self.max_tokens and self.tokens_used >= self.max_tokens:
+                why = f"This run used about {self.tokens_used:,} tokens, which reached the budget of {self.max_tokens:,}."
+            elif self.max_cost_usd and self.cost_used >= self.max_cost_usd:
+                why = f"This run cost about ${self.cost_used:.2f}, which reached the budget of ${self.max_cost_usd:.2f}."
+            if why:
+                self.tripped = (f"{why} Everything already paid for is saved: raise the budget in Settings "
+                                f"(or set it to 0 for no limit) and press Resume.")
+                raise ProviderCircuitOpen(self.tripped)
 
     def on_success(self) -> None:
         with self._lock:

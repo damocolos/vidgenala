@@ -129,6 +129,21 @@ def friendly_api_error(err: Exception, base_url: str) -> str:
     return f"{base}  ->  {hints[code]}" if code in hints else base
 
 
+_TLS = threading.local()
+
+
+def _note_usage(usage) -> None:
+    """Remember the provider-reported token counts of the call running on this thread (if any)."""
+    if usage is None:
+        return
+    try:
+        p, c = getattr(usage, "prompt_tokens", None), getattr(usage, "completion_tokens", None)
+        if isinstance(p, int) and isinstance(c, int) and not isinstance(p, bool):
+            _TLS.usage = (p, c)
+    except Exception:
+        pass
+
+
 def _chat_text_impl(
     base_url: str,
     api_key: str,
@@ -157,6 +172,8 @@ def _chat_text_impl(
     def _create(stream: bool, temp: Optional[float]):
         for _ in range(3):
             kw: Dict[str, Any] = {"model": model.strip(), "messages": messages, "stream": stream}
+            if stream and "stream_options" not in dropped:
+                kw["stream_options"] = {"include_usage": True}   # ask for real token counts (cost tracking)
             if temp is not None and "temperature" not in dropped:
                 kw["temperature"] = temp
             if max_tokens and "max_tokens" not in dropped:
@@ -168,6 +185,9 @@ def _chat_text_impl(
                 return target.chat.completions.create(**kw)
             except Exception as err:
                 msg = str(err).lower()
+                if ("stream_options" in msg or "include_usage" in msg) and "stream_options" not in dropped:
+                    dropped.add("stream_options")
+                    continue
                 if "temperature" in msg and "temperature" not in dropped:
                     dropped.add("temperature")
                     log_fn(f"[{tag} WARN] '{model}' rejected 'temperature'; retrying without it.")
@@ -187,6 +207,7 @@ def _chat_text_impl(
                 raise RuntimeError(explained) from err
         raise RuntimeError("Chat completion kept failing after parameter fallbacks.")
 
+    _TLS.usage = None
     log_fn(f"[{tag}] Calling {base_url.strip()} | model={model.strip()} (streaming)")
     t0 = time.time()
     chunks: List[str] = []
@@ -197,6 +218,7 @@ def _chat_text_impl(
         for chunk in stream:
             if time.time() - t0 > timeout:
                 raise TimeoutError(f"no complete answer within {int(timeout)}s")
+            _note_usage(getattr(chunk, "usage", None))
             chunk_err = getattr(chunk, "error", None)
             if chunk_err:
                 raise RuntimeError(f"provider error mid-stream: {chunk_err}")
@@ -223,6 +245,7 @@ def _chat_text_impl(
         resp = _create(False, 0.2 if temperature is not None else None)
         if not getattr(resp, "choices", None):
             raise RuntimeError(f"'{model}' returned no choices ({getattr(resp, 'error', None) or 'empty response'}).")
+        _note_usage(getattr(resp, "usage", None))
         choice = resp.choices[0]
         raw = (getattr(choice.message, "content", "") or "").strip()
         finish = getattr(choice, "finish_reason", None)
@@ -239,7 +262,6 @@ def _chat_text_impl(
 # run already accepted are replayed from the ledger instead of paying for them again.
 # ---------------------------------------------------------------------------------------------
 _RECORDER = None
-_TLS = threading.local()
 
 
 def set_llm_recorder(recorder) -> None:
@@ -284,7 +306,21 @@ def _chat_text(*args, **kwargs) -> Tuple[str, Optional[str]]:
         raise
     if guard is not None and not getattr(_TLS, "replayed", False):
         guard.on_success()
+        _account_budget(guard, args, kwargs, out[0], getattr(_TLS, "usage", None))
     return out
+
+
+def _account_budget(guard, args, kwargs, text: str, usage) -> None:
+    """Add this paid call to the job's token/cost budget. Raises ProviderCircuitOpen when the cap is passed
+    (the answer itself is already in the ledger, so nothing paid for is lost)."""
+    def arg(i, name):
+        return kwargs.get(name, args[i] if len(args) > i else "")
+    model, system, user = arg(2, "model"), arg(3, "system_prompt"), arg(4, "user_prompt")
+    if usage:
+        p, c = usage
+    else:
+        p, c = (len(system or "") + len(user or "")) // 4, len(text or "") // 4
+    guard.on_usage(str(model).strip(), int(p), int(c))
 
 
 def _chat_text_ledger(
@@ -303,6 +339,7 @@ def _chat_text_ledger(
     """Ledger-aware wrapper around one chat completion. Returns (text, finish_reason)."""
     rec = _RECORDER
     _TLS.call_id = None
+    _TLS.usage = None
     if rec is None:
         return _chat_text_impl(base_url, api_key, model, system_prompt, user_prompt, log_fn, tag,
                                temperature, timeout, max_tokens, min_chars)
@@ -335,9 +372,12 @@ def _chat_text_ledger(
         except Exception:
             pass
         raise
+    usage = getattr(_TLS, "usage", None)
     try:
         _TLS.call_id = rec.record(status="ok", response_text=text, finish_reason=finish,
-                                  duration_sec=round(time.time() - t0, 2), **base)
+                                  duration_sec=round(time.time() - t0, 2),
+                                  prompt_tokens=usage[0] if usage else None,
+                                  completion_tokens=usage[1] if usage else None, **base)
     except Exception as err:  # never let bookkeeping break a paid call
         log_fn(f"[{tag} WARN] Could not save AI response to the ledger: {err}")
         _TLS.call_id = None

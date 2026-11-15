@@ -11,6 +11,7 @@ from ...db.repos.jobs import (
     get_job, list_jobs, list_active_jobs, get_job_events, create_job, has_active_resume,
 )
 from ...db.repos import llm_calls as llm_repo
+from ...services.llm_ledger import cost_report
 from ...jobs.sse import stream_job_events
 from ...db.connection import get_connection
 
@@ -137,7 +138,7 @@ def resume_job(
 def get_job_llm_calls(job_id: str, conn: sqlite3.Connection = Depends(get_db_conn)):
     if not get_job(conn, job_id):
         raise HTTPException(status_code=404, detail="Job not found.")
-    return {"summary": llm_repo.summary(conn, job_id=job_id),
+    return {"summary": llm_repo.summary(conn, job_id=job_id), "cost": cost_report(conn, job_id=job_id),
             "calls": list(reversed(llm_repo.list_calls(conn, job_id=job_id, limit=500)))}
 
 
@@ -147,7 +148,7 @@ def get_llm_calls(
     limit: int = Query(100, ge=1, le=500),
     conn: sqlite3.Connection = Depends(get_db_conn),
 ):
-    return {"summary": llm_repo.summary(conn, topic_id=topic_id),
+    return {"summary": llm_repo.summary(conn, topic_id=topic_id), "cost": cost_report(conn, topic_id=topic_id),
             "calls": llm_repo.list_calls(conn, topic_id=topic_id, limit=limit)}
 
 

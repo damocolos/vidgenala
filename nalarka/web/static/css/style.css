@@ -422,3 +422,17 @@ tbody tr:hover { background: var(--sheet-2); }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
+
+/* Beat status strip */
+.beat-strip { margin-bottom: .9rem; }
+.beat-strip-head { font-size: .85rem; margin-bottom: .4rem; }
+.beat-cells { display: flex; flex-wrap: wrap; gap: 4px; }
+.beat-cell { min-width: 28px; height: 28px; padding: 0 .35rem; border-radius: 6px; border: 1px solid var(--rule); background: #fff; font: 600 .72rem/1 var(--font-mono, monospace); cursor: pointer; color: var(--ink); }
+.beat-cell.beat-ok { background: var(--ok-wash); border-color: var(--ok); }
+.beat-cell.beat-fixed { background: var(--pencil-wash); border-color: var(--pencil); }
+.beat-cell.beat-fallback { background: var(--warn-wash); border-color: var(--warn); }
+.beat-cell.beat-missing { background: #fff; border-style: dashed; border-color: var(--fail); color: var(--fail); }
+.beat-cell:focus-visible { outline: 2px solid var(--pencil); outline-offset: 1px; }
+.ai-cost { margin: .2rem 0 .9rem; }
+.ai-cost-head { margin: 0 0 .5rem; font-size: .9rem; }
+.ai-note { font-size: .78rem; margin: .4rem 0 0; }

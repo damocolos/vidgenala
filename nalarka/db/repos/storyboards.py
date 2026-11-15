@@ -244,3 +244,30 @@ def list_revisions_for_beat(conn: sqlite3.Connection, beat_id: int) -> List[dict
     cur = conn.cursor()
     cur.execute("SELECT * FROM beat_revisions WHERE beat_id = ? ORDER BY revision ASC", (beat_id,))
     return [dict(r) for r in cur.fetchall()]
+
+
+def beat_state_summary(conn: sqlite3.Connection, beats: List[dict]) -> dict:
+    """Marks each beat dict with `state` (ok / fixed / missing / fallback) and returns the counts.
+
+    fixed = working code that the audit loop had to rewrite; missing = no usable code saved yet."""
+    ids = [b["id"] for b in beats]
+    fixed = set()
+    if ids:
+        marks = ",".join("?" for _ in ids)
+        fixed = {r[0] for r in conn.execute(
+            f"SELECT DISTINCT beat_id FROM beat_revisions WHERE reason = 'audit' AND beat_id IN ({marks})", ids)}
+    counts = {"ok": 0, "fixed": 0, "missing": 0, "fallback": 0}
+    for b in beats:
+        if not b.get("source_code") or b.get("code_status") == "missing":
+            st = "missing"
+        elif b.get("code_status") in ("rejected", "fallback"):
+            st = "fallback"
+        elif b["id"] in fixed:
+            st = "fixed"
+        else:
+            st = "ok"
+        b["state"] = st
+        counts[st] += 1
+    counts["total"] = len(beats)
+    counts["saved"] = counts["ok"] + counts["fixed"] + counts["fallback"]
+    return counts
