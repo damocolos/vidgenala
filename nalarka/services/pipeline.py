@@ -418,7 +418,6 @@ def execute_full_render(
 
     if captions:
         from ..core.captions import build_cues
-        from ..core.scripttext import parse_tagged_script
         clean_text = parse_tagged_script(script_raw_text)[0] if script_raw_text else ""
         cues, rep = build_cues(clean_text, words)
         render_plan = {**plan, "captions": cues}     # render-only: the saved plan and storyboard stay unchanged
