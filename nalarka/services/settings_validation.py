@@ -66,6 +66,10 @@ def validate_settings(settings: Dict[str, Any]) -> Tuple[Dict[str, Any], List[st
                 val = json.dumps({m: list(p) for m, p in parsed.items()}, ensure_ascii=False)
             elif k in ("ai.storyboard_model", "ai.pass2_model", "ai.audit_model"):
                 val = val.strip()[:200]
+            elif k == "render.video_type":
+                val = str(val).strip().lower()
+                if val not in ("flat", "3d"):
+                    raise ValueError('must be "flat" or "3d"')
             elif k == "render.workers":
                 val = max(1, min(16, val))
             elif k.startswith("tts.") and vtype == "float":

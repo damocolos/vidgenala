@@ -253,6 +253,14 @@
           </select>
         </div>
         <div class="form-group">
+          <label for="video-type-select">Video type</label>
+          <select id="video-type-select">
+            <option value="flat" {% if default_video_type != '3d' %}selected{% endif %}>Motion flat (2D, default)</option>
+            <option value="3d" {% if default_video_type == '3d' %}selected{% endif %}>Scene 3D (new, needs Chromium)</option>
+          </select>
+          <small class="text-muted" id="video-type-hint">Scene 3D draws every shot as a moving 3D scene. It needs Playwright with Chromium and renders slower.</small>
+        </div>
+        <div class="form-group">
           <label for="orientation-select">Orientation</label>
           <select id="orientation-select">
             <option value="Match Reference">Match Reference</option>
@@ -628,6 +636,7 @@ async function triggerFullRender() {
   const whisper_size = document.getElementById('whisper-size-select').value;
   const synth_bgm = document.getElementById('synth-bgm-check').checked;
   const captions = document.getElementById('captions-check').checked;
+  const video_type = document.getElementById('video-type-select').value;
   const workers = parseInt(document.getElementById('render-workers').value, 10) || 4;
   const output_name = document.getElementById('output-name').value.trim() || `video_topic_${TOPIC_ID}.mp4`;
 
@@ -642,6 +651,7 @@ async function triggerFullRender() {
         whisper_size: whisper_size,
         synth_bgm: synth_bgm,
         captions: captions,
+        video_type: video_type,
         workers: workers,
         output_name: output_name
       })

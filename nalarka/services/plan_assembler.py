@@ -23,6 +23,7 @@ def save_plan(
     ref_id: Optional[int] = None,
     coder_model: str = "default",
     is_current: bool = True,
+    video_type: str = "flat",
 ) -> int:
     """Saves plan into storyboards, storyboard_helpers, and beats tables."""
     total_dur = int(plan.get("total_dur") or plan.get("total_duration") or 60)
@@ -37,13 +38,13 @@ def save_plan(
             """
             INSERT INTO storyboards (
                 topic_id, script_id, voiceover_id, transcript_id, reference_item_id,
-                coder_model, total_dur, palette_json, is_current, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+                coder_model, total_dur, palette_json, is_current, video_type, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
             """,
             (
                 topic_id, script_id, voiceover_id, transcript_id, ref_id,
                 coder_model, total_dur, json.dumps(palette, ensure_ascii=False),
-                int(is_current),
+                int(is_current), video_type,
             ),
         )
         sb_id = cur.lastrowid
@@ -151,6 +152,9 @@ def load_plan(
     }
 
     effective_log = log_fn if log_fn is not None else (lambda m: None)
+    if (sb_row["video_type"] if "video_type" in sb_row.keys() else "flat") == "3d":
+        plan["video_type"] = "3d"
+        return plan, {}                      # beats are JavaScript; they are checked in the browser, not compiled here
     namespace = build_namespace(plan["scene_sources"], effective_log)
     return plan, namespace
 
@@ -201,6 +205,12 @@ def count_saved_beats(conn: sqlite3.Connection, storyboard_id: int) -> Tuple[int
     )
     r = cur.fetchone()
     return int(r["done"] or 0), int(r["total"] or 0)
+
+
+def missing_beat_indices_3d(plan: dict) -> list:
+    """Scene 3D: indices of beats that have no saved (already validated) code."""
+    beats = (plan.get("scene_sources") or {}).get("beats", {})
+    return [i for i, sc in enumerate(plan.get("scenes", [])) if not beats.get(f"beat_{int(sc.get('beat_id', i + 1)):02d}")]
 
 
 def missing_beat_indices(plan: dict, namespace: Dict[str, Any]) -> list:

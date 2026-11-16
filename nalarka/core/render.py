@@ -47,6 +47,24 @@ def default_render_workers() -> int:
     return max(1, min(8, cpus - 1))
 
 
+def build_audio_filter(total_dur: int, has_bgm: bool) -> str:
+    """ffmpeg filter_complex that builds the final audio ([aout]): voice delayed 1 s, optional ducked music.
+    Input 1 is the voiceover, input 2 the music. Shared by every video type so audio is identical."""
+    fade_st = max(0.0, round(total_dur - 2.5, 2))
+    fade_vo_st = max(0.0, round(total_dur - 0.5, 2))
+    if has_bgm:
+        return (
+            f"[1:a]adelay=1000:all=1,apad=whole_dur={total_dur},atrim=0:{total_dur},asetpts=PTS-STARTPTS,asplit=2[vo1][vo2];"
+            f"[2:a]atrim=0:{total_dur},asetpts=PTS-STARTPTS,volume=0.32,afade=t=out:st={fade_st}:d=2.5[bg];"
+            f"[bg][vo1]sidechaincompress=threshold=0.03:ratio=8:attack=20:release=300[duck];"
+            f"[duck][vo2]amix=inputs=2:duration=longest:dropout_transition=0,volume=2,alimiter=limit=0.95[aout]"
+        )
+    return (
+        f"[1:a]adelay=1000:all=1,apad=whole_dur={total_dur},atrim=0:{total_dur},"
+        f"afade=t=out:st={fade_vo_st}:d=0.5[aout]"
+    )
+
+
 def render_video_pipeline(
     plan: dict,
     namespace: Dict[str, Any],
@@ -64,8 +82,6 @@ def render_video_pipeline(
     cancel_event: Optional[threading.Event] = None,
 ):
     total_frames = total_dur * FPS
-    fade_st = max(0.0, round(total_dur - 2.5, 2))
-    fade_vo_st = max(0.0, round(total_dur - 0.5, 2))
     preset = "medium" if total_dur <= 90 else "veryfast"   # long videos: favour turnaround
 
     cmd = [
@@ -76,19 +92,10 @@ def render_video_pipeline(
         "-i", vo_path,
     ]
 
-    if bgm_path and os.path.exists(bgm_path):
+    has_bgm = bool(bgm_path and os.path.exists(bgm_path))
+    if has_bgm:
         cmd += ["-stream_loop", "-1", "-i", bgm_path]
-        filter_complex = (
-            f"[1:a]adelay=1000:all=1,apad=whole_dur={total_dur},atrim=0:{total_dur},asetpts=PTS-STARTPTS,asplit=2[vo1][vo2];"
-            f"[2:a]atrim=0:{total_dur},asetpts=PTS-STARTPTS,volume=0.32,afade=t=out:st={fade_st}:d=2.5[bg];"
-            f"[bg][vo1]sidechaincompress=threshold=0.03:ratio=8:attack=20:release=300[duck];"
-            f"[duck][vo2]amix=inputs=2:duration=longest:dropout_transition=0,volume=2,alimiter=limit=0.95[aout]"
-        )
-    else:
-        filter_complex = (
-            f"[1:a]adelay=1000:all=1,apad=whole_dur={total_dur},atrim=0:{total_dur},"
-            f"afade=t=out:st={fade_vo_st}:d=0.5[aout]"
-        )
+    filter_complex = build_audio_filter(total_dur, has_bgm)
 
     cmd += [
         "-filter_complex", filter_complex,

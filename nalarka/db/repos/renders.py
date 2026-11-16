@@ -19,6 +19,7 @@ def create_render(
     synth_bgm: Optional[bool] = None,
     orientation: Optional[str] = None,
     output_path: Optional[str] = None,
+    video_type: str = "flat",
 ) -> int:
     with conn:
         cur = conn.cursor()
@@ -27,14 +28,14 @@ def create_render(
             INSERT INTO renders (
                 topic_id, storyboard_id, voiceover_id, bgm_item_id, trigger,
                 status, width, height, total_dur, workers, whisper_size,
-                synth_bgm, orientation, output_path, created_at
-            ) VALUES (?, ?, ?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+                synth_bgm, orientation, output_path, video_type, created_at
+            ) VALUES (?, ?, ?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
             """,
             (
                 topic_id, storyboard_id, voiceover_id, bgm_item_id, trigger,
                 width, height, total_dur, workers, whisper_size,
                 int(synth_bgm) if synth_bgm is not None else None,
-                orientation, output_path,
+                orientation, output_path, video_type,
             ),
         )
         return cur.lastrowid

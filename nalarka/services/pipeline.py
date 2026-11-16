@@ -262,6 +262,7 @@ def execute_full_render(
     storyboard_model: Optional[str] = None,
     audit_model: Optional[str] = None,
     captions: bool = False,
+    video_type: str = "flat",
 ) -> dict:
     """Executes full video generation pipeline from voiceover and script to verified MP4."""
     ctx.check_cancelled()
@@ -303,6 +304,18 @@ def execute_full_render(
     if words is None:
         words = extract_word_timestamps(str(vo), whisper_size, ctx.log, language=whisper_lang)
         _save_cached_words(ctx.workdir, vo, whisper_size, whisper_lang, words)
+
+    if video_type == "3d":
+        from .pipeline3d import run_scene3d
+        return run_scene3d(
+            ctx, base_url=base_url, api_key=api_key, coder_model=coder_model, storyboard_model=storyboard_model or None,
+            topic=topic, sections=parsed_sections, words=words, total_dur=total_dur, width=width, height=height, vo=vo,
+            bgm_path=str(bgm_path) if bgm_path else None, synth_bgm=synth_bgm, ref_profile=ref_profile,
+            existing_plan=existing_plan, max_duration=max_duration,
+            output_mp4=Path(output_mp4_path) if output_mp4_path else ctx.workdir / "output_motion_graphic.mp4",
+            script_raw_text=script_raw_text, captions=captions, batch_beats=batch_beats, parallel_calls=parallel_calls,
+            on_plan_ready=on_plan_ready, on_code_update=on_code_update,
+        )
 
     ctx.check_cancelled()
     scene_mod_path = ctx.workdir / "generated_scenes.py"

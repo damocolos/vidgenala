@@ -83,6 +83,13 @@ def _storyboard_matches(sb: dict, *, script_id, voiceover_id, total_dur) -> bool
     return True
 
 
+def _refuse_3d(conn, storyboard_id: int, what: str) -> None:
+    """Beat-level tools (reroll, preview) only know the flat type for now."""
+    sb = get_storyboard(conn, storyboard_id)
+    if sb and (sb.get("video_type") or "flat") == "3d":
+        raise ValueError(f"{what} is not available for Scene 3D videos yet. Run the render again to retry missing shots.")
+
+
 def _save_verification(conn, rid, ver_res: dict, max_duration) -> int:
     return create_verification(
         conn, render_id=rid, passed=ver_res["passed"], total=ver_res["total"],
@@ -360,6 +367,9 @@ def run_job(job_id: str, db_path: Optional[str] = None) -> int:
             captions = params.get("captions")
             if captions is None:
                 captions = str(get_setting(conn, "render.captions", False)).lower() in ("true", "1", "yes", "on")
+            video_type = str(params.get("video_type") or get_setting(conn, "render.video_type", "flat") or "flat").lower()
+            if video_type not in ("flat", "3d"):
+                raise ValueError(f"Unknown video type {video_type!r} (use 'flat' or '3d').")
             workers = params.get("workers", get_setting(conn, "render.workers", None))
             batch_beats = params.get("batch_beats") or _int_setting("ai.batch_beats", 6)
             parallel_calls = params.get("parallel_calls") or _int_setting("ai.parallel_calls", 3)
@@ -375,6 +385,7 @@ def run_job(job_id: str, db_path: Optional[str] = None) -> int:
                 synth_bgm=synth_bgm,
                 orientation=orientation,
                 output_path=str(out_mp4),
+                video_type=video_type,
             )
             update_render_status(conn, rid, status="running", started_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
             _bind_render(rid)
@@ -385,8 +396,15 @@ def run_job(job_id: str, db_path: Optional[str] = None) -> int:
             existing_sb = None
             if specified_sb_id:
                 existing_sb = get_storyboard(conn, specified_sb_id)
+                if existing_sb and (existing_sb.get("video_type") or "flat") != video_type:
+                    raise ValueError(f"Storyboard #{specified_sb_id} is a '{existing_sb.get('video_type') or 'flat'}' storyboard, "
+                                     f"but this render is '{video_type}'. Pick the matching video type.")
             elif reuse_sb:
                 existing_sb = get_current_storyboard(conn, topic_id)
+                if existing_sb and (existing_sb.get("video_type") or "flat") != video_type:
+                    ctx.log(f"[STORYBOARD] The saved storyboard #{existing_sb['id']} is a '{existing_sb.get('video_type') or 'flat'}' "
+                            f"one; this render is '{video_type}', so a new storyboard will be made (the old one is kept).")
+                    existing_sb = None
                 if existing_sb and not _storyboard_matches(
                     existing_sb, script_id=cur_sc["id"], voiceover_id=vo_id, total_dur=_expected_total_dur(vo_path),
                 ):
@@ -440,6 +458,7 @@ def run_job(job_id: str, db_path: Optional[str] = None) -> int:
                         transcript_id=tr_id,
                         coder_model=prov["coder_model"],
                         is_current=True,
+                        video_type=video_type,
                     )
                     ctx.log(f"[DB] Storyboard #{sb_id} saved to database immediately (safe from interruptions).")
 
@@ -469,6 +488,7 @@ def run_job(job_id: str, db_path: Optional[str] = None) -> int:
                 bgm_path=bgm_path,
                 synth_bgm=synth_bgm,
                 captions=bool(captions),
+                video_type=video_type,
                 workers=workers,
                 batch_beats=batch_beats,
                 parallel_calls=parallel_calls,
@@ -501,6 +521,7 @@ def run_job(job_id: str, db_path: Optional[str] = None) -> int:
                     transcript_id=tr_id,
                     coder_model=prov["coder_model"],
                     is_current=True,
+                    video_type=video_type,
                 )
             else:
                 # Final sync in place (never a second storyboard): audit rewrites and late fixes.
@@ -548,6 +569,7 @@ def run_job(job_id: str, db_path: Optional[str] = None) -> int:
                 raise ValueError(f"Beat id {beat_id} not found.")
 
             sb_id = beat_row["storyboard_id"]
+            _refuse_3d(conn, sb_id, "Rewriting one beat")
             plan, namespace = load_plan(conn, sb_id, log_fn=ctx.log)
 
             sb_data = get_storyboard(conn, sb_id)
@@ -632,6 +654,7 @@ def run_job(job_id: str, db_path: Optional[str] = None) -> int:
                 raise ValueError(f"Beat id {beat_id} not found.")
 
             sb_id = beat_row["storyboard_id"]
+            _refuse_3d(conn, sb_id, "Previewing one beat")
             plan, namespace = load_plan(conn, sb_id, log_fn=ctx.log)
 
             sb_data = get_storyboard(conn, sb_id)

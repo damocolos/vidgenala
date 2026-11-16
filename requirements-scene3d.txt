@@ -1,0 +1,3 @@
+# Only needed for the "Scene 3D" video type (headless Chromium renders and checks the 3D scenes)
+playwright>=1.40
+# then run once:  playwright install chromium

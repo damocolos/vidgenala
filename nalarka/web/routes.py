@@ -165,6 +165,7 @@ def topic_studio(topic_id: int, request: Request, conn: sqlite3.Connection = Dep
             "latest_render": latest_render,
             "latest_verification": latest_verification,
             "default_workers": default_render_workers(),
+            "default_video_type": str(get_setting(conn, "render.video_type", "flat") or "flat"),
         },
     )
 

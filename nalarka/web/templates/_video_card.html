@@ -12,6 +12,7 @@
   <div class="video-meta">
     <h4>
       <a href="/topics/{{ r.topic_id }}">Topic #{{ r.topic_id }}</a>
+      {% if r.video_type == '3d' %}<span class="badge badge-blue" title="Scene 3D video">3D</span>{% endif %}
       {% if r.status in ('queued', 'running') %}<span class="badge badge-blue">Rendering</span>
       {% elif r.verification_total %}
         <button class="badge {{ 'badge-green' if r.verification_passed == r.verification_total else 'badge-red' }}" style="border:0" onclick="showVerificationModal({{ r.id }})">{{ r.verification_passed }}/{{ r.verification_total }} checks</button>
