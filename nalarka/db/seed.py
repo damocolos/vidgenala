@@ -19,6 +19,7 @@ DEFAULT_SETTINGS = [
     ("render.orientation", "Match Reference", "string"),
     ("render.whisper_size", "base", "string"),
     ("render.synth_bgm", "true", "bool"),
+    ("render.captions", "false", "bool"),
     ("render.output_name", "output_motion_graphic.mp4", "string"),
     ("render.reuse_transcript_cache", "false", "bool"),
     ("tts.provider", "ElevenLabs API v1", "string"),

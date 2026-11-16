@@ -65,6 +65,7 @@ def trigger_full_render(
             "orientation": req.orientation,
             "whisper_size": req.whisper_size,
             "synth_bgm": req.synth_bgm,
+            "captions": req.captions,
             "bgm_path": _checked_media(conn, req.bgm_path),
             "workers": req.workers,
             # Snapshot, so a Resume asks the provider for exactly the same requests (saved answers replay).

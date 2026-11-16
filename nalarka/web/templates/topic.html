@@ -288,6 +288,13 @@
             <span>Synthesize background music</span>
           </label>
         </div>
+        <div class="form-group">
+          <label class="form-check">
+            <input type="checkbox" id="captions-check">
+            <span>Show captions, one phrase at a time</span>
+          </label>
+          <small class="text-muted">Lower third of the video, taken from your script. Off by default, so videos look as before.</small>
+        </div>
       </div>
     </div>
 
@@ -620,6 +627,7 @@ async function triggerFullRender() {
   const orientation = document.getElementById('orientation-select').value;
   const whisper_size = document.getElementById('whisper-size-select').value;
   const synth_bgm = document.getElementById('synth-bgm-check').checked;
+  const captions = document.getElementById('captions-check').checked;
   const workers = parseInt(document.getElementById('render-workers').value, 10) || 4;
   const output_name = document.getElementById('output-name').value.trim() || `video_topic_${TOPIC_ID}.mp4`;
 
@@ -633,6 +641,7 @@ async function triggerFullRender() {
         orientation: orientation,
         whisper_size: whisper_size,
         synth_bgm: synth_bgm,
+        captions: captions,
         workers: workers,
         output_name: output_name
       })

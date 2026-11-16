@@ -261,6 +261,7 @@ def execute_full_render(
     on_code_update: Optional[Callable[[dict, str], None]] = None,
     storyboard_model: Optional[str] = None,
     audit_model: Optional[str] = None,
+    captions: bool = False,
 ) -> dict:
     """Executes full video generation pipeline from voiceover and script to verified MP4."""
     ctx.check_cancelled()
@@ -402,9 +403,21 @@ def execute_full_render(
     ffmpeg_log = ctx.workdir / "ffmpeg_render.log"
     render_workers = workers if workers is not None else default_render_workers()
 
+    if captions:
+        from ..core.captions import build_cues
+        from ..core.scripttext import parse_tagged_script
+        clean_text = parse_tagged_script(script_raw_text)[0] if script_raw_text else ""
+        cues, rep = build_cues(clean_text, words)
+        render_plan = {**plan, "captions": cues}     # render-only: the saved plan and storyboard stay unchanged
+        ctx.log(f"[CAPTIONS] {rep['cues']} phrases from the {rep['source']} text"
+                + (f" ({int(rep['matched'] * 100)}% of script words matched the transcript)" if rep["source"] == "script" else
+                   " (the script did not line up with the transcript, so the transcript's own words are used)"))
+    else:
+        render_plan = plan
+
     ctx.set_progress(70, "Starting FFmpeg rawvideo render pipeline...")
     render_video_pipeline(
-        plan=plan,
+        plan=render_plan,
         namespace=namespace,
         words=words,
         vo_path=str(vo),

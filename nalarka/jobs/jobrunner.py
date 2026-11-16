@@ -357,6 +357,9 @@ def run_job(job_id: str, db_path: Optional[str] = None) -> int:
             whisper_size = params.get("whisper_size") or get_setting(conn, "render.whisper_size", "base")
             bgm_path = params.get("bgm_path")
             synth_bgm = params.get("synth_bgm", get_setting(conn, "render.synth_bgm", True))
+            captions = params.get("captions")
+            if captions is None:
+                captions = str(get_setting(conn, "render.captions", False)).lower() in ("true", "1", "yes", "on")
             workers = params.get("workers", get_setting(conn, "render.workers", None))
             batch_beats = params.get("batch_beats") or _int_setting("ai.batch_beats", 6)
             parallel_calls = params.get("parallel_calls") or _int_setting("ai.parallel_calls", 3)
@@ -465,6 +468,7 @@ def run_job(job_id: str, db_path: Optional[str] = None) -> int:
                 max_duration=topic["max_duration"],
                 bgm_path=bgm_path,
                 synth_bgm=synth_bgm,
+                captions=bool(captions),
                 workers=workers,
                 batch_beats=batch_beats,
                 parallel_calls=parallel_calls,

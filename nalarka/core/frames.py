@@ -70,6 +70,10 @@ def render_frame(
         img_prev, _, _ = render_single_beat_canvas(t, prev_beat, active_idx - 1, width, height, palette, words, namespace)
         img = composite_transition(img_prev, img, local_t / trans_dur, trans_type)
 
+    cues = plan.get("captions")          # only present when the render was started with captions on
+    if cues:
+        from .captions import apply_caption
+        img = apply_caption(img, t, cues)
     return img
 
 

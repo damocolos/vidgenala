@@ -125,6 +125,7 @@ class CreateRenderRequest(BaseModel):
     orientation: Optional[str] = Field("Match Reference", pattern=r"^(Match Reference|\d{3,4}x\d{3,4})$")
     whisper_size: Optional[str] = Field("base", pattern=r"^(tiny|base|small|medium)$")
     synth_bgm: Optional[bool] = True
+    captions: Optional[bool] = None      # None = the render.captions setting (off by default)
     bgm_path: Optional[str] = None
     workers: Optional[int] = Field(None, ge=1, le=16)
     batch_beats: Optional[int] = Field(None, ge=1, le=12)
