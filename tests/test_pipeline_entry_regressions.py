@@ -52,3 +52,26 @@ def test_flat_full_render_gets_past_the_setup_and_reaches_the_ai(tmp_path, monke
     with pytest.raises(Reached):
         pl.execute_full_render(RunContext(workdir=tmp_path, log_fn=lambda m: None), "u", "k", "m", "Topik", "[Hook] halo dunia", vo,
                                check_script_fingerprint=False, captions=captions)
+
+
+@pytest.mark.parametrize("text,n", [("1380\n", 1380), ("1380,\n", 1380), ("1380,\n\n", 1380), ("  450", 450)])
+def test_frame_count_parsing_tolerates_ffprobe_variants(text, n):
+    from nalarka.core.verify import parse_frame_count
+    assert parse_frame_count(text) == n
+
+
+def test_frame_count_parsing_rejects_nothing():
+    from nalarka.core.verify import parse_frame_count
+    with pytest.raises(ValueError):
+        parse_frame_count("")
+
+
+@pytest.mark.skipif(not shutil.which("ffmpeg") or not shutil.which("ffprobe"), reason="ffmpeg not installed")
+def test_verification_frame_count_on_a_real_video(tmp_path):
+    from nalarka.core.verify import run_verification_suite
+    mp4 = tmp_path / "v.mp4"
+    subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc=size=160x284:rate=30:duration=2",
+                    "-f", "lavfi", "-i", "sine=frequency=300:duration=2", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac",
+                    "-shortest", str(mp4)], check=True)
+    res = run_verification_suite(str(mp4), 2, 160, 284, lambda m: None, max_duration=60, check_dir=tmp_path / "c")
+    assert res["frames"] == 60

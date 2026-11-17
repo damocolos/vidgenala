@@ -21,6 +21,15 @@ class VerificationFailed(AssertionError):
         self.result = result
 
 
+def parse_frame_count(text: str) -> int:
+    """First whole number in ffprobe's answer. Some ffprobe builds print a trailing comma ("1380,") or extra
+    lines, so the old int(text) failed on perfectly good videos."""
+    m = re.search(r"\d+", text or "")
+    if not m:
+        raise ValueError(f"ffprobe did not report a frame count: {text!r}")
+    return int(m.group(0))
+
+
 def run_verification_suite(
     output_path: str,
     expected_dur: Optional[int],
@@ -54,9 +63,9 @@ def run_verification_suite(
     frame_cmd = [
         "ffprobe", "-v", "error", "-count_frames",
         "-select_streams", "v:0", "-show_entries", "stream=nb_read_frames",
-        "-of", "csv=p=0", output_path
+        "-of", "default=noprint_wrappers=1:nokey=1", output_path
     ]
-    actual_frames = int(subprocess.check_output(frame_cmd, text=True).strip())
+    actual_frames = parse_frame_count(subprocess.check_output(frame_cmd, text=True))
 
     black_cmd = ["ffmpeg", "-i", output_path, "-vf", "blackdetect=d=0.1:pix_th=0.05", "-an", "-f", "null", "-"]
     black_proc = subprocess.run(black_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
