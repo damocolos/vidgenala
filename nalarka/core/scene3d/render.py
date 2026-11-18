@@ -127,7 +127,8 @@ def encode_silent_video(frames: Iterator[bytes], out_path: Union[str, Path], fps
         raise Scene3DUnavailable("ffmpeg was not found on PATH")
     w, h = size
     cmd = [exe, "-y", "-loglevel", "error", "-f", "image2pipe", "-framerate", str(fps), "-c:v", "mjpeg", "-i", "-",
-           "-vf", f"scale={w}:{h}:flags=lanczos,format=yuv420p", "-c:v", "libx264", "-preset", "veryfast", "-crf", str(crf),
+           "-vf", f"scale={w}:{h}:flags=lanczos:in_range=pc:out_range=tv,format=yuv420p", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-color_range", "tv",
+           "-preset", "veryfast", "-crf", str(crf),
            "-r", str(fps), "-fps_mode", "cfr", "-movflags", "+faststart", str(out_path)]
     proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
     n = 0
@@ -167,8 +168,8 @@ def encode_with_audio(frames: Iterator[bytes], out_path: Union[str, Path], fps: 
     cmd = [exe, "-y", "-f", "image2pipe", "-framerate", str(fps), "-c:v", "mjpeg", "-i", "-", "-i", str(vo_path)]
     if has_bgm:
         cmd += ["-stream_loop", "-1", "-i", str(bgm_path)]
-    cmd += ["-filter_complex", f"[0:v]scale={w}:{h}:flags=lanczos,format=yuv420p[vout];" + build_audio_filter(total_dur, has_bgm),
-            "-map", "[vout]", "-map", "[aout]", "-c:v", "libx264", "-preset", "medium" if total_dur <= 90 else "veryfast", "-crf", str(crf),
+    cmd += ["-filter_complex", f"[0:v]scale={w}:{h}:flags=lanczos:in_range=pc:out_range=tv,format=yuv420p[vout];" + build_audio_filter(total_dur, has_bgm),
+            "-map", "[vout]", "-map", "[aout]", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-color_range", "tv", "-preset", "medium" if total_dur <= 90 else "veryfast", "-crf", str(crf),
             "-r", str(fps), "-fps_mode", "cfr", "-frames:v", str(total_frames),
             "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-t", str(total_dur), "-movflags", "+faststart", str(out_path)]
     log_f = open(log_path, "w", encoding="utf-8") if log_path else subprocess.DEVNULL

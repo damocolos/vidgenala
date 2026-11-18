@@ -123,3 +123,26 @@ def test_demo_script_runs_with_stand_in(tmp_path):
                           "--fps", "10", "--three-file", str(fake)], capture_output=True, text=True, timeout=120)
     assert res.returncode == 0, res.stdout + res.stderr
     assert (tmp_path / "o" / "demo.mp4").stat().st_size > 1000 and list((tmp_path / "o").glob("frame_*.jpg"))
+
+
+@pytest.mark.skipif(not shutil.which("ffmpeg") or not shutil.which("ffprobe"), reason="ffmpeg not installed")
+def test_final_video_is_limited_range_yuv420p_not_yuvj(tmp_path):
+    """Browser JPEGs are full range (yuvj420p). The verifier wants plain yuv420p; some ffmpeg builds keep the 'j' unless
+    the range conversion is explicit. White must also stay white after the conversion."""
+    from PIL import Image
+    vo = tmp_path / "vo.wav"
+    subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi", "-i", "sine=frequency=300:duration=1", str(vo)], check=True)
+
+    def frames():
+        for _ in range(30):
+            b = io.BytesIO()
+            Image.new("RGB", SIZE, (255, 255, 255)).save(b, "JPEG", quality=95)
+            yield b.getvalue()
+    out = tmp_path / "w.mp4"
+    r3.encode_with_audio(frames(), out, 30, SIZE, 1, str(vo))
+    probe = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=pix_fmt,color_range", "-of", "default=nw=1", str(out)],
+                           capture_output=True, text=True).stdout
+    assert "pix_fmt=yuv420p" in probe and "yuvj" not in probe and "color_range=tv" in probe
+    png = tmp_path / "f.png"
+    subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", str(out), "-frames:v", "1", str(png)], check=True)
+    assert min(Image.open(png).convert("RGB").getpixel((10, 10))) >= 245        # white stayed white
