@@ -36,16 +36,27 @@ def ensure_three(cache_dir: Union[str, Path], url: str = THREE_URL, log: Callabl
     return text
 
 
-def frame_plan(beats: Sequence[Beat], fps: int, total_frames: int) -> List[Tuple[int, float]]:
-    """For every global frame: (beat index, time in seconds since that beat started). The last beat holds to the end."""
-    out: List[Tuple[int, float]] = []
+TRANSITION_S = 0.4        # cross-fade length at the start of every shot except the first
+
+
+def frame_plan(beats: Sequence[Beat], fps: int, total_frames: int, transition_s: float = TRANSITION_S
+               ) -> List[Tuple[int, float, Optional[float], float]]:
+    """For every global frame: (beat index, time since that beat started, time of the previous beat or None, fade 0..1).
+    The previous beat keeps animating during the fade, so nothing freezes. The last beat holds to the end."""
+    out: List[Tuple[int, float, Optional[float], float]] = []
     bi = 0
     for f in range(total_frames):
         now = f / fps
         while bi + 1 < len(beats) and now >= beats[bi + 1][2] - 1e-9:
             bi += 1
         start, end = beats[bi][2], beats[bi][3]
-        out.append((bi, max(0.0, min(now - start, max(0.0, end - start - 1.0 / fps)))))
+        t = max(0.0, min(now - start, max(0.0, end - start - 1.0 / fps)))
+        age = now - start
+        if bi > 0 and transition_s > 0 and age < transition_s:
+            x = max(0.0, min(1.0, age / transition_s))
+            out.append((bi, t, now - beats[bi - 1][2], x * x * (3 - 2 * x)))      # smoothstep
+        else:
+            out.append((bi, t, None, 1.0))
     return out
 
 
@@ -90,8 +101,8 @@ class Scene3DRenderer:
         self._pw = self._browser = self._page = None
         return False
 
-    def load_beat(self, name: str, code: str, dur: float) -> dict:
-        res = self._page.evaluate("([c, n, d]) => { try { return { ok: true, info: window.__r3.loadBeat(c, n, d) }; } catch (e) { return { ok: false, error: String(e && e.message || e) }; } }", [code, name, float(dur)])
+    def load_beat(self, name: str, code: str, dur: float, keep_prev: bool = False) -> dict:
+        res = self._page.evaluate("([c, n, d, k]) => { try { return { ok: true, info: window.__r3.loadBeat(c, n, d, k) }; } catch (e) { return { ok: false, error: String(e && e.message || e) }; } }", [code, name, float(dur), bool(keep_prev)])
         if not res["ok"]:
             raise ValueError(res["error"])
         return res["info"]
@@ -100,23 +111,33 @@ class Scene3DRenderer:
         b64 = self._page.evaluate("(t) => { window.__r3.frame(t); return window.__r3.jpeg(%s); }" % self.quality, float(t))
         return base64.b64decode(b64)
 
+    def frame_mix_jpeg(self, t_prev: float, t: float, mix: float) -> bytes:
+        b64 = self._page.evaluate("([a, b, m]) => { window.__r3.frameMix(a, b, m); return window.__r3.jpeg(%s); }" % self.quality, [float(t_prev), float(t), float(mix)])
+        return base64.b64decode(b64)
+
     def info(self) -> dict:
         return self._page.evaluate("() => window.__r3.info()")
 
     def iter_frames(self, beats: Sequence[Beat], fps: int, total_frames: int,
-                    should_stop: Optional[Callable[[], bool]] = None) -> Iterator[bytes]:
+                    should_stop: Optional[Callable[[], bool]] = None, transition_s: float = TRANSITION_S) -> Iterator[bytes]:
         missing = [b[0] for b in beats if not b[1]]
         if missing:
             raise ValueError("these beats have no 3D code yet: " + ", ".join(missing))
-        loaded = -1
-        for f, (bi, t) in enumerate(frame_plan(beats, fps, total_frames)):
+        loaded, fading = -1, False
+        for f, (bi, t, t_prev, mix) in enumerate(frame_plan(beats, fps, total_frames, transition_s)):
             if should_stop is not None and should_stop():
                 raise InterruptedError("3D render cancelled.")
             if bi != loaded:
                 name, code, start, end = beats[bi]
-                self.load_beat(name, code, max(end - start, 1.0 / fps))
-                loaded = bi
-            yield self.frame_jpeg(t)
+                self.load_beat(name, code, max(end - start, 1.0 / fps), keep_prev=bi > 0 and transition_s > 0)
+                loaded, fading = bi, bi > 0 and transition_s > 0
+            if t_prev is not None:
+                yield self.frame_mix_jpeg(t_prev, t, mix)
+            else:
+                if fading:
+                    self._page.evaluate("() => window.__r3.dropPrev()")
+                    fading = False
+                yield self.frame_jpeg(t)
 
 
 def encode_silent_video(frames: Iterator[bytes], out_path: Union[str, Path], fps: int, size: Tuple[int, int],

@@ -10,7 +10,8 @@ var R3 = (function () {
     const canvas = renderer.domElement;
     if (document.body) document.body.appendChild(canvas);
     const camera = new THREE.PerspectiveCamera(55, W / H, 0.1, 600);
-    let cur = null;        // { b, scene, objs, water[], dispose() }
+    let cur = null, prev = null;   // loaded beats: { b, scene, objs, water[], dur }; prev only lives during a cross-fade
+    let mixCanvas = null, mixCtx = null, lastOut = canvas;
 
     const GEO = {
       box: (p) => new THREE.BoxGeometry(p.w, p.h, p.d),
@@ -43,23 +44,24 @@ var R3 = (function () {
       return new THREE.CanvasTexture(c);
     }
 
-    function unload() {
-      if (!cur) return;
-      for (const o of cur.objs) {
+    function disposeSlot(slot) {
+      if (!slot) return;
+      for (const o of slot.objs) {
         if (!o) continue;
-        cur.scene.remove(o);
+        slot.scene.remove(o);
         if (o.geometry && o.geometry.dispose) o.geometry.dispose();
         if (o.material) { if (o.material.map && o.material.map.dispose) o.material.map.dispose(); if (o.material.dispose) o.material.dispose(); }
       }
-      if (cur.scene.background && cur.scene.background.dispose) cur.scene.background.dispose();
-      cur = null;
+      if (slot.scene.background && slot.scene.background.dispose) slot.scene.background.dispose();
     }
+    function unload() { disposeSlot(cur); cur = null; dropPrev(); }
+    function dropPrev() { disposeSlot(prev); prev = null; lastOut = canvas; }
 
     // Builds the scene of one beat. Throws with the validator's message when the code is not acceptable.
-    function loadBeat(code, name, dur) {
+    function loadBeat(code, name, dur, keepPrev) {
       const res = V3.validate(code, name, { dur: dur, aspect: W / H });
       if (!res.ok) throw new Error(name + ' failed the check: ' + res.errors.join('; '));
-      unload();
+      if (keepPrev && cur) { dropPrev(); prev = cur; cur = null; } else unload();
       const v = V3.makeBuilder(dur);
       V3.compile(code, name)(v);
       const b = v._b, scene = new THREE.Scene(), objs = new Array(b.nodes.length).fill(null), water = [];
@@ -86,30 +88,44 @@ var R3 = (function () {
       return { nodes: b.nodes.length, triangles: b.tris };
     }
 
-    function frame(t) {
-      if (!cur) throw new Error('no beat loaded');
-      const b = cur.b, st = V3.evalScene(b, t), cam = V3.evalCamera(b, t);
+    function draw(slot, t) {
+      const b = slot.b, st = V3.evalScene(b, t), cam = V3.evalCamera(b, t);
       for (const s of st) {
-        const o = cur.objs[s.id]; if (!o) continue;
+        const o = slot.objs[s.id]; if (!o) continue;
         o.visible = s.visible;
         o.matrix.fromArray(s.world); o.matrixWorldNeedsUpdate = true;
         const m = o.material, op = s.state.opacity;
         if (m.opacity !== op) { m.opacity = op; m.transparent = op < 1 || s.kind === 'label'; }
         if (s.kind !== 'label' && s.state.color && o._color !== s.state.color) { o._color = s.state.color; m.color.set(s.state.color); }
       }
-      for (const w of cur.water) {                                  // gentle swell
+      for (const w of slot.water) {                                 // gentle swell
         const a = w.geometry.attributes.position, arr = a.array;
         for (let i = 0; i < arr.length; i += 3) arr[i + 1] = Math.sin(arr[i] * 0.15 + t * 1.2) * 0.15 + Math.cos(arr[i + 2] * 0.12 + t * 0.9) * 0.12;
         a.needsUpdate = true;
       }
       if (camera.fov !== cam.fov) { camera.fov = cam.fov; camera.updateProjectionMatrix(); }
       camera.position.set(cam.pos[0], cam.pos[1], cam.pos[2]); camera.lookAt(cam.look[0], cam.look[1], cam.look[2]);
-      renderer.render(cur.scene, camera);
+      renderer.render(slot.scene, camera);
     }
 
-    function jpeg(quality) { return canvas.toDataURL('image/jpeg', quality === undefined ? 0.92 : quality).split(',', 2)[1]; }
+    function frame(t) {
+      if (!cur) throw new Error('no beat loaded');
+      draw(cur, t); lastOut = canvas;
+    }
+
+    // Cross-fade: the previous beat (still animating at tPrev) fades out while the current beat (at t) fades in.
+    function frameMix(tPrev, t, mix) {
+      if (!cur) throw new Error('no beat loaded');
+      if (!prev) { frame(t); return; }
+      if (!mixCanvas) { mixCanvas = document.createElement('canvas'); mixCanvas.width = W; mixCanvas.height = H; mixCtx = mixCanvas.getContext('2d'); }
+      draw(prev, tPrev); mixCtx.globalAlpha = 1; mixCtx.drawImage(canvas, 0, 0, W, H);
+      draw(cur, t); mixCtx.globalAlpha = Math.max(0, Math.min(1, mix)); mixCtx.drawImage(canvas, 0, 0, W, H);
+      mixCtx.globalAlpha = 1; lastOut = mixCanvas;
+    }
+
+    function jpeg(quality) { return lastOut.toDataURL('image/jpeg', quality === undefined ? 0.92 : quality).split(',', 2)[1]; }
     function info() { const i = renderer.info && renderer.info.render ? renderer.info.render : {}; return { calls: i.calls, triangles: i.triangles, nodes: cur ? cur.b.nodes.length : 0 }; }
-    return { loadBeat: loadBeat, frame: frame, jpeg: jpeg, info: info, unload: unload, size: [W, H] };
+    return { loadBeat: loadBeat, frame: frame, frameMix: frameMix, dropPrev: dropPrev, jpeg: jpeg, info: info, unload: unload, size: [W, H] };
   }
   return { create: create };
 })();

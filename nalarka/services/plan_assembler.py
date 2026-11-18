@@ -207,6 +207,16 @@ def count_saved_beats(conn: sqlite3.Connection, storyboard_id: int) -> Tuple[int
     return int(r["done"] or 0), int(r["total"] or 0)
 
 
+def plan_outdated_3d(plan: dict) -> bool:
+    """A saved Scene 3D storyboard from before the longer-shot / one-world planning: shots without a shared world, or a
+    typical shot under 3 s. Such a plan is replaced by a new one instead of being reused."""
+    scenes = plan.get("scenes") or []
+    if not scenes:
+        return True
+    lengths = sorted(float(s["end"]) - float(s["start"]) for s in scenes)
+    return any(not s.get("world") for s in scenes) or lengths[len(lengths) // 2] < 3.0
+
+
 def missing_beat_indices_3d(plan: dict) -> list:
     """Scene 3D: indices of beats that have no saved (already validated) code."""
     beats = (plan.get("scene_sources") or {}).get("beats", {})

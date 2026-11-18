@@ -16,10 +16,23 @@ SIZE = (216, 384)
 
 def test_frame_plan_switches_beats_and_holds_last():
     beats = [("beat_01", "x", 0.0, 1.0), ("beat_02", "x", 1.0, 2.0)]
-    plan = r3.frame_plan(beats, 10, 25)
-    assert [b for b, _ in plan[:10]] == [0] * 10 and [b for b, _ in plan[10:]] == [1] * 15
-    assert plan[10][1] == 0.0 and plan[0][1] == 0.0
+    plan = r3.frame_plan(beats, 10, 25, transition_s=0)
+    assert [b for b, *_ in plan[:10]] == [0] * 10 and [b for b, *_ in plan[10:]] == [1] * 15
+    assert plan[10][1] == 0.0 and plan[0][1] == 0.0 and all(p[2] is None for p in plan)
     assert plan[-1][1] <= 0.9 + 1e-9                       # never beyond the beat's own length
+
+
+def test_frame_plan_cross_fade_window():
+    beats = [("beat_01", "x", 0.0, 2.0), ("beat_02", "x", 2.0, 4.0), ("beat_03", "x", 4.0, 6.0)]
+    plan = r3.frame_plan(beats, 30, 180, transition_s=0.4)
+    assert all(p[2] is None for p in plan[:60])                          # no fade into the first shot
+    fade = [p for p in plan if p[2] is not None]
+    assert 24 <= len(fade) <= 26                                         # about 12 frames at each of the two cuts
+    first = plan[60:72]
+    assert [p[0] for p in first] == [1] * 12
+    assert first[0][3] == 0.0 and all(a[3] <= b[3] for a, b in zip(first, first[1:])) and first[-1][3] < 1.0
+    assert first[0][2] == pytest.approx(2.0) and first[5][2] == pytest.approx(2.0 + 5 / 30)   # previous shot keeps moving
+    assert plan[74][2] is None and plan[74][3] == 1.0
 
 
 def test_ensure_three_uses_cache(tmp_path):
@@ -83,6 +96,18 @@ def test_cancel_stops_rendering(renderer):
         return n["c"] > 3
     with pytest.raises(InterruptedError):
         list(renderer.iter_frames([("beat_01", EXAMPLE_BEAT, 0, 2)], 10, 20, should_stop=stop))
+
+
+def test_cross_fade_frame_differs_from_both_shots(renderer):
+    second = EXAMPLE_BEAT.replace("beat_01", "beat_02").replace("v.sky('sky', 'cream')", "v.sky('dark', 'blue')")
+    renderer.load_beat("beat_01", EXAMPLE_BEAT, 2.0)
+    renderer.load_beat("beat_02", second, 2.0, keep_prev=True)
+    a = renderer.frame_mix_jpeg(2.1, 0.0, 0.0)          # all previous shot
+    mid = renderer.frame_mix_jpeg(2.2, 0.1, 0.5)
+    b = renderer.frame_mix_jpeg(2.4, 0.3, 1.0)          # all new shot
+    assert _jpeg_ok(mid) and len({a, mid, b}) == 3
+    renderer._page.evaluate("() => window.__r3.dropPrev()")
+    assert _jpeg_ok(renderer.frame_jpeg(0.5))
 
 
 @pytest.mark.skipif(not shutil.which("ffmpeg") or not shutil.which("ffprobe"), reason="ffmpeg not installed")

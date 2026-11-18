@@ -40,19 +40,32 @@ _RULES = """## Hard rules (the code is run in a sandbox and rejected if it break
 - Plain JavaScript only. No `while`, `do`, `async`, `await`, `import`, `require`, `eval`, `Function`, `Date`, `Math.random`, timers, `window`, `document`, `fetch`. Use `for` loops with fixed counts (use sin/cos for variety, never random).
 - Each beat is ONE self-contained function `function beat_NN(v) {...}`. Do not rely on other functions or on variables outside it.
 - Every beat must set a camera, and it must MOVE (dolly, orbit or a free-form function). Static cameras look dead.
-- Use at least 8 objects per beat and make several of them move with `.anim`.
+- Use at least 8 objects per beat. A beat lasts 3.5-6.5 seconds, so choreograph it: things appear one after another (use v.step(t, t0, t1) for scale or opacity from 0 to 1 at staggered times), move along paths, rotate, pulse; the story of the beat happens in time. Static scenery plus a moving camera is not enough.
+- Never build sea or ground from many flat boxes: use v.water(...) and v.ground(...). Keep every object small enough that it never fills the frame (a typical object is under 10 m; the camera is 15-45 m away).
+- Stay inside the video's world (given below): same place, same palette, same light as the neighbouring beats. Show what the narration of the beat says.
 - The scene must be in front of the camera: at least two non-ground objects visible. The video is portrait 9:16, so frame the subject in the upper two thirds; the bottom third is reserved for captions.
 - At most 600 objects and 60000 triangles per beat; a label has at most 40 characters.
 - Output ONLY code (no prose). No markdown fences needed."""
 
-PASS1_SCENE3D_PROMPT = """You are the creative director of a short 3D explainer video (portrait 9:16, shots of about 2 seconds, a camera that moves in nearly every shot).
-Plan the shots for the window {win_start:.0f}s-{win_end:.0f}s of a {total_dur}s video: {beats_lo} to {beats_hi} beats. {window_note}
-Return JSON only: {{"scenes": [ {{"start": seconds, "summary": "what this shot says", "visual_blueprint": "...", "transition": "cut"}} ]}}
+EXAMPLE_CHOREOGRAPHY = """  // sequence inside a 5 s beat: the sun appears, a ray travels down to the sea, the water glows where it lands
+  const sun = v.sphere(3, { x: -14, y: 26, z: -30, color: 'yellow' });
+  sun.anim((t) => ({ sx: 1 + 0.25 * v.step(t, 0.2, 1.0), sy: 1 + 0.25 * v.step(t, 0.2, 1.0), sz: 1 + 0.25 * v.step(t, 0.2, 1.0) }));
+  const ray = v.cylinder(0.6, 0.6, 30, { x: -7, y: 10, z: -30, rz: 0.5, color: 'yellow', opacity: 0 });
+  ray.anim((t) => ({ opacity: 0.55 * v.step(t, 1.0, 1.8), sy: 0.2 + 0.8 * v.step(t, 1.0, 2.4) }));
+  const glow = v.sphere(5, { x: 0, y: 0.2, z: -30, sy: 0.05, color: 'white', opacity: 0 });
+  glow.anim((t) => ({ opacity: 0.6 * v.step(t, 2.2, 3.0) }));"""
+
+PASS1_SCENE3D_PROMPT = """You are the creative director of a short 3D explainer video (portrait 9:16). The viewer must always understand WHAT is being explained, so the pictures stay inside one world and follow the narration literally.
+Plan the shots for the window {win_start:.0f}s-{win_end:.0f}s of a {total_dur}s video: {beats_lo} to {beats_hi} shots. {window_note}
+Return JSON only: {{"world": "one paragraph", "scenes": [ {{"start": seconds, "summary": "what this shot explains", "visual_blueprint": "...", "transition": "dissolve"}} ]}}
 Rules:
-- Each beat lasts 1.6 to 2.6 seconds and follows the narration in `word_timestamps`: the visual must show what is said at that moment.
-- `visual_blueprint` describes the 3D scene concretely: which objects (buildings, people, water, signs, vehicles made of boxes and cylinders), where they are, what moves, and what the camera does (dolly in, orbit, crane up, pan along). Vary the camera and the angle between neighbouring beats. Keep it buildable from simple shapes.
-- You may put ONE short on-scene label (max 3 words) in the blueprint, for example a sign or a number. Spoken text appears as captions at the bottom, so do not repeat sentences in the scene.
-- Keep one consistent world and look across beats (same palette, same place)."""
+- `world`: ONE consistent setting for the whole video (place, time of day, colour mood, the 3-5 recurring objects such as the sun, the sea, a pier). Every shot happens in this world. {world_note}
+- Each shot lasts 3.5 to 6.5 seconds. A shot is one idea told with ANIMATION, not a slideshow: objects enter, move and change during the shot while the camera glides. Never plan a shot that is just one static object.
+- Start a shot where a sentence or a phrase of the narration starts (use `word_timestamps`), so the picture changes only when the idea changes.
+- Show what the narration says, literally. If it says sunlight enters the sea, show the sun, rays and the sea surface, not a glass of water or an unrelated prop. If it needs a metaphor, keep it inside the same world and use it for the whole shot.
+- `visual_blueprint` (2-4 sentences) lists the objects and where they are, the sequence of events in time ("first ... then ... finally ..."), and the camera move (dolly in, orbit, crane up, pan along). Keep it buildable from simple shapes (boxes, cylinders, spheres, cones, plus the sea, sky, people, palms and buildings that the toolkit has).
+- At most ONE short label (max 3 words) per shot, for a key term. Spoken sentences appear as captions at the bottom, so never repeat them in the scene.
+- Camera and angle should differ between neighbouring shots, but the world, palette and light stay the same."""
 
 PASS2_SCENE3D_PROMPT = """You are a 3D scene programmer. Write JavaScript functions `@FIRST@(v)` through `@LAST@(v)`, one per beat, that build each beat's 3D scene with the `v` API below.
 
@@ -60,6 +73,9 @@ PASS2_SCENE3D_PROMPT = """You are a 3D scene programmer. Write JavaScript functi
 
 ## Example of one good beat
 """ + EXAMPLE_BEAT + """
+
+## Example of choreography (animation over time inside one beat)
+""" + EXAMPLE_CHOREOGRAPHY + """
 
 Write all requested functions, in order, nothing else."""
 

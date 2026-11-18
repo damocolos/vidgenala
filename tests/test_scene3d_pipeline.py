@@ -141,3 +141,12 @@ def test_flat_pipeline_ignores_video_type_default():
     import inspect
     from nalarka.services.pipeline import execute_full_render
     assert inspect.signature(execute_full_render).parameters["video_type"].default == "flat"
+
+
+def test_old_short_shot_storyboards_are_replaced_not_reused():
+    from nalarka.services.plan_assembler import plan_outdated_3d
+    short = {"scenes": [{"start": i * 2.0, "end": i * 2.0 + 2.0, "world": "w"} for i in range(10)]}
+    no_world = {"scenes": [{"start": i * 5.0, "end": i * 5.0 + 5.0} for i in range(8)]}
+    good = {"scenes": [{"start": i * 5.0, "end": i * 5.0 + 5.0, "world": "w"} for i in range(8)]}
+    assert plan_outdated_3d(short) and plan_outdated_3d(no_world) and plan_outdated_3d({"scenes": []})
+    assert not plan_outdated_3d(good)

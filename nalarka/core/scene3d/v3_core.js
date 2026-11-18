@@ -239,6 +239,31 @@ var V3 = (function () {
     return new Function(...SHADOWED, 'Math', '"use strict";\n' + code + '\nreturn ' + name + ';')(...SHADOWED.map(() => undefined), Math);
   }
 
+  // Full size of a shape in world units (width, height, depth) after the node's scale.
+  function extents(s) {
+    const m = s.world, sx = Math.hypot(m[0], m[1], m[2]), sy = Math.hypot(m[4], m[5], m[6]), sz = Math.hypot(m[8], m[9], m[10]), p = s.params || {};
+    switch (s.kind) {
+      case 'box': return [p.w * sx, p.h * sy, p.d * sz];
+      case 'cylinder': { const r = Math.max(p.rt, p.rb); return [2 * r * sx, p.h * sy, 2 * r * sz]; }
+      case 'sphere': return [2 * p.r * sx, 2 * p.r * sy, 2 * p.r * sz];
+      case 'cone': return [2 * p.r * sx, p.h * sy, 2 * p.r * sz];
+      case 'capsule': return [2 * p.r * sx, (p.len + 2 * p.r) * sy, 2 * p.r * sz];
+      default: return [0, 0, 0];
+    }
+  }
+  // How much of the picture height one solid object covers, by its bounding sphere (>1 means it blocks the view).
+  function coverage(cam, s) {
+    const e = extents(s), big = Math.max(e[0], e[1], e[2]), small = Math.min(e[0], e[1], e[2]);
+    if (!(big > 0) || small < 0.15 * big) return 0;                       // thin walls, floors and panes are fine
+    if (s.state.opacity < 0.5 || s.kind === 'label') return 0;
+    const R = 0.5 * Math.hypot(e[0], e[1], e[2]);
+    const f = cam.look.map((x, i) => x - cam.pos[i]), fl = Math.hypot(f[0], f[1], f[2]) || 1;
+    const z = ((s.pos[0] - cam.pos[0]) * f[0] + (s.pos[1] - cam.pos[1]) * f[1] + (s.pos[2] - cam.pos[2]) * f[2]) / fl;
+    if (z < -R) return 0;                                                  // behind the camera
+    if (z < R * 0.6) return 9;                                             // the camera is inside it
+    return (2 * Math.atan(R / z)) / (cam.fov * Math.PI / 180);
+  }
+
   // Dry-run one beat. Returns { ok, errors[], warnings[], stats }. Never throws.
   function validate(code, name, opts) {
     opts = opts || {}; const dur = opts.dur || 2, aspect = opts.aspect || 9 / 16;
@@ -272,6 +297,20 @@ var V3 = (function () {
       if (seen < 2) low++;
       const sig = JSON.stringify([cam.pos, cam.look]); if (first === null) first = sig; else if (sig !== first) moved = true;
     }
+    // after its end the beat is still drawn for the cross-fade into the next shot, so it must stay valid a little longer
+    try { const te = dur + 0.5; evalScene(b, te); evalCamera(b, te); } catch (e) { errors.push(`just after its end (t=${(dur + 0.5).toFixed(2)}s): ${e && e.message}`); return done(); }
+    const blockers = new Map(), solidTimes = [0.1, 0.35, 0.6, 0.85].map((u) => u * dur);
+    for (const t of solidTimes) {
+      const scene = evalScene(b, t), cam = evalCamera(b, t);
+      for (const s of scene) {
+        if (!s.visible || s.kind === 'plane' || s.kind === 'water' || s.kind === 'group') continue;
+        if (coverage(cam, s) > 1.25) blockers.set(s.id, (blockers.get(s.id) || 0) + 1);
+      }
+    }
+    for (const [id, n] of blockers) if (n >= 2) { errors.push(`object #${id} (${b.nodes[id].kind}) is so big or so close that it fills the whole frame and hides the scene; make it smaller, move it, or move the camera back`); break; }
+    let slabs = 0;
+    for (const s of evalScene(b, 0)) if (s.kind === 'box' && s.visible) { const e = extents(s); if (e[1] <= 0.8 && Math.max(e[0], e[2]) >= 2) slabs++; }
+    if (slabs >= 25) errors.push(`${slabs} flat boxes look like water or ground tiled from slabs, which renders as a messy staircase. Use v.water(...) for sea and v.ground(...) for land.`);
     if (low >= 3) errors.push(`the camera looks at empty space: fewer than 2 objects are in view at ${low} of 5 sample times. Aim v.cam at your objects (look at the middle of the subject) and keep it close enough to see them.`);
     if (!moved && b.animCount === 0) warnings.push('nothing moves: add a camera move (dolly/orbit) or .anim(...) on objects');
     else if (!moved) warnings.push('the camera does not move; a slow dolly or orbit makes the shot feel 3D');

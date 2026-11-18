@@ -38,7 +38,7 @@ from ..db.repos.renders import (
 )
 from ..services.context import RunContext
 from .events import JobEventEmitter
-from ..services.plan_assembler import save_plan, load_plan, sync_code, count_saved_beats
+from ..services.plan_assembler import save_plan, load_plan, sync_code, count_saved_beats, plan_outdated_3d
 from ..core.audio import get_audio_duration
 from ..core.constants import INTRO_OUTRO_SECONDS
 from ..services.pipeline import (
@@ -431,6 +431,12 @@ def run_job(job_id: str, db_path: Optional[str] = None) -> int:
                     )
                 except Exception as e:
                     ctx.log(f"[STORYBOARD REUSE WARN] Could not load existing storyboard #{existing_sb['id']}: {e}. Will generate fresh.")
+                    existing_plan = None
+                    existing_ns = None
+                    sb_id = None
+                if video_type == "3d" and existing_plan is not None and plan_outdated_3d(existing_plan):
+                    ctx.log(f"[STORYBOARD] Storyboard #{existing_sb['id']} uses the old short-shot planning; a new one with longer shots "
+                            "and one consistent world will be made (the old one is kept in the database).")
                     existing_plan = None
                     existing_ns = None
                     sb_id = None
